@@ -6,3 +6,6 @@ __pycache__/
 output/
 *.pdf
 .DS_Store
+
+# personal documents, kept locally only
+*.docx
