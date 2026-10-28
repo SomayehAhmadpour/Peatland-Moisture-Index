@@ -175,7 +175,7 @@ def new_analysis_page() -> None:
             attr="Esri World Imagery", name="Satellite",
         ).add_to(fmap)  # fmt: skip
         if box is not None:
-            folium.GeoJson(mapping(box), style_function=lambda _: {"color": "#7C3AED", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
+            folium.GeoJson(mapping(box), style_function=lambda _: {"color": "#FFFFFF", "fillColor": "#FFFFFF", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
         folium.Marker([lat, lon], tooltip=f"{lat:.6f}, {lon:.6f}").add_to(fmap)
         folium.LayerControl(collapsed=False).add_to(fmap)
         clicked = st_folium(fmap, height=480, use_container_width=True, returned_objects=["last_clicked"], key="picker")
