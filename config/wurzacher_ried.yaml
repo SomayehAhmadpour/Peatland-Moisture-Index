@@ -1,0 +1,44 @@
+# IRIS-SAT-NDWI example configuration: Wurzacher Ried (Bad Wurzach, Baden-Württemberg)
+# No secrets belong here. The staging database URL is read from the
+# IRIS_STAGING_DATABASE_URL environment variable (see .env.example).
+
+study_area: Wurzacher Ried (NSG 4.035), Bad Wurzach, DE-BW
+
+stac_url: https://earth-search.aws.element84.com/v1
+# Priority order. Collection 1 = ESA's consistent reprocessing (baseline >=
+# 05.00, DN always carry the +1000 offset) but it lacks Jan-Nov 2022 here.
+# The legacy collection fills that gap; its mixed offsets are handled via the
+# earthsearch:boa_offset_applied flag plus the scene guard below -- see README.
+collections: [sentinel-2-c1-l2a, sentinel-2-l2a]
+mgrs_tile: 32UNU            # all parcels lie inside this tile; other tiles are rejected
+start_date: 2021-01-01      # spans the 2022-01-25 baseline 04.00 change in the original archive
+end_date: 2026-10-26
+target_crs: EPSG:25832
+
+max_scene_cloud_pct: 80     # item-level pre-filter only (saves reads)
+min_valid_fraction: 0.8     # parcel is accepted when >= 80 % of its pixels are valid
+valid_scl_classes: [4, 5, 6]  # vegetation, not-vegetated, water
+require_positive_reflectance: true
+water_threshold: 0.0        # McFeeters (1996): NDWI > 0 indicates open water
+max_blue_reflectance: 0.12  # fog/haze/snow missed by SCL (clear bog/field <= ~0.07 in B02)
+max_below_offset_fraction: 0.5  # scene guard against a double-applied BOA offset
+
+parcels_geojson: data/parcels/wurzacher_ried_osm.geojson
+boxes:
+  - parcel_id: wr-core-100m
+    name: Haidgauer Hochmoor open bog, 100 m x 100 m
+    kind: bog-core
+    center_lat: 47.926242
+    center_lon: 9.877493
+    size_m: 100
+    snap_m: 10
+  - parcel_id: ref-field-100m
+    name: Agricultural field west of the reserve (reference), 100 m x 100 m
+    kind: reference
+    center_lat: 47.933030
+    center_lon: 9.842128
+    size_m: 100
+    snap_m: 10
+
+output_dir: output
+max_workers: 8
