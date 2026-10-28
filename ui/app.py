@@ -23,7 +23,7 @@ import streamlit as st
 from shapely.geometry import mapping, shape
 from streamlit_folium import st_folium
 
-from iris_ndwi.adhoc import metric_crs, point_config, rerun_config, run_and_write
+from iris_ndwi.adhoc import is_single_box, metric_crs, point_config, rerun_config, run_and_write
 from iris_ndwi.config import load_config
 from iris_ndwi.interpret import Obs, interpret
 from iris_ndwi.parcels import GeometryError, reproject, square_box
@@ -50,7 +50,8 @@ st.markdown(
           border-color: rgba(255,255,255,0.12) !important; }}
       [data-testid="stSidebar"] div[data-baseweb="select"] * {{ color: #F8FAFC !important; }}
       [data-testid="stSidebar"] button * {{ color: #000000 !important; }}
-      [data-testid="stSidebar"] [data-testid="stDateInput"] input {{ color: #000000 !important; -webkit-text-fill-color: #000000; }}
+      [data-testid="stSidebar"] :is([data-testid="stDateInput"], [data-testid="stNumberInput"]) input {{
+          color: #000000 !important; -webkit-text-fill-color: #000000; }}
       [data-testid="stSidebar"] span[data-baseweb="tag"] {{ background-color: {PRIMARY} !important; }}
       div[data-testid="stMetricValue"] > div {{ font-size: 1.55rem; }}
       div[data-testid="stMetric"] {{ background: white; border: 1px solid {BORDER}; border-radius: 10px; padding: 10px 14px; }}
@@ -267,11 +268,17 @@ def manage_run(run_dir: Path, manifest: dict) -> None:
             "New period", value=(date.fromisoformat(cfg["start_date"]), min(date.fromisoformat(cfg["end_date"]), today)),
             min_value=S2_FIRST_DATE, max_value=today, format="YYYY-MM-DD", key=period_key,
         )  # fmt: skip
+        size_key = f"rerun_size_{run_dir.name}"
+        resizable = is_single_box(cfg)
+        if resizable:
+            st.number_input("Box edge (m)", min_value=20, max_value=2000, step=10, key=size_key,
+                            value=int(cfg["boxes"][0]["size_m"]), help="Same centre point; snapped to the 10 m grid")  # fmt: skip
         synthetic = manifest["synthetic_data"]
         st.button(
-            "Re-run with new dates", use_container_width=True, disabled=bool(request) or synthetic,
-            on_click=lambda: state.update(rerun_request=(run_dir, state[period_key])),
-            help="Same parcels and settings as this run; only the dates change. The result is a new run.",
+            "Re-run with these settings" if resizable else "Re-run with new dates",
+            use_container_width=True, disabled=bool(request) or synthetic,
+            on_click=lambda: state.update(rerun_request=(run_dir, state[period_key], state.get(size_key) if resizable else None)),
+            help="Same parcels and settings as this run, except what you changed above. The result is a new run.",
         )  # fmt: skip
         st.caption("Synthetic test runs can't be re-run here." if synthetic else
                    "Re-runs read every scene again: a few months take about a minute, several years 10 minutes or more.")  # fmt: skip
@@ -291,13 +298,13 @@ def manage_run(run_dir: Path, manifest: dict) -> None:
         return
     # The run happens after the buttons are drawn, so they show as disabled while it is busy.
     del state["rerun_request"]
-    old_dir, period = request
+    old_dir, period, size_m = request
     if not isinstance(period, tuple) or len(period) != 2:
         state.manage_message = ("error", "Choose a start and an end date.")
         st.rerun()
     start, end = period
     try:
-        config = rerun_config(load_run(str(old_dir))["manifest"]["config"], start, end, ROOT)
+        config = rerun_config(load_run(str(old_dir))["manifest"]["config"], start, end, ROOT, size_m)
         with st.spinner(f"Re-running {start} → {end} …"):
             result, new_dir = run_and_write(config, OUTPUT_DIR)
     except (GeometryError, ValueError, OSError, RuntimeError) as exc:

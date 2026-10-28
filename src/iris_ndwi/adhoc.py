@@ -3,8 +3,9 @@
 - a square box around any point: it inherits every quality setting from a
   base configuration; only the parcel, the dates, the metric CRS and the
   MGRS tile change;
-- an earlier run repeated with new dates: its manifest holds the complete
-  configuration, so everything except the dates stays identical.
+- an earlier run repeated with new dates (and, for a single-box run, a new
+  box size): its manifest holds the complete configuration, so everything
+  else stays identical.
 """
 
 from __future__ import annotations
@@ -64,12 +65,25 @@ def point_config(
     })  # fmt: skip
 
 
-def rerun_config(manifest_config: dict[str, Any], start: date, end: date, root: Path) -> PipelineConfig:
+def is_single_box(manifest_config: dict[str, Any]) -> bool:
+    """A run of one box around a point (e.g. from point_config), whose size can be changed."""
+    return not manifest_config.get("parcels_geojson") and len(manifest_config.get("boxes") or []) == 1
+
+
+def rerun_config(
+    manifest_config: dict[str, Any], start: date, end: date, root: Path, size_m: float | None = None
+) -> PipelineConfig:
     """Configuration of an earlier run (from its manifest) with new dates.
 
-    A relative parcels_geojson path is resolved against root (the repository).
+    size_m resizes the box of a single-box run around the same centre. A
+    relative parcels_geojson path is resolved against root (the repository).
     """
-    config = PipelineConfig.model_validate({**manifest_config, "start_date": start, "end_date": end})
+    updates: dict[str, Any] = {"start_date": start, "end_date": end}
+    if size_m is not None:
+        if not is_single_box(manifest_config):
+            raise ValueError("the box size can only be changed for a run with exactly one box")
+        updates["boxes"] = [{**manifest_config["boxes"][0], "size_m": size_m}]
+    config = PipelineConfig.model_validate({**manifest_config, **updates})
     if config.parcels_geojson and not config.parcels_geojson.is_absolute():
         config = config.model_copy(update={"parcels_geojson": root / config.parcels_geojson})
     return config

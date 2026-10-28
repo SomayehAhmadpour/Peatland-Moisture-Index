@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 from shapely.geometry import Point
 
-from iris_ndwi.adhoc import metric_crs, point_config, rerun_config, run_and_write
+from iris_ndwi.adhoc import is_single_box, metric_crs, point_config, rerun_config, run_and_write
 from iris_ndwi.parcels import load_parcels
 from iris_ndwi.scenes import dominant_tile
 from iris_ndwi.synthetic import SyntheticSource
@@ -71,3 +71,20 @@ def test_rerun_config_changes_only_the_dates(config, tmp_path):
 def test_rerun_config_rejects_bad_dates(config):
     with pytest.raises(ValueError, match="end_date is before start_date"):
         rerun_config(config.model_dump(mode="json"), date(2024, 5, 1), date(2024, 4, 1), config.parcels_geojson.parents[2])
+
+
+def test_rerun_config_resizes_a_single_box(config):
+    point = point_config(config, 47.926242, 9.877493, 100, date(2024, 5, 1), date(2024, 8, 31), "Box")
+    manifest_config = point.model_dump(mode="json")
+    assert is_single_box(manifest_config)
+    cfg = rerun_config(manifest_config, date(2024, 5, 1), date(2024, 8, 31), config.parcels_geojson.parents[2], size_m=300)
+    (before,), (after,) = load_parcels(point), load_parcels(cfg)
+    assert after.area_m2 == pytest.approx(300 * 300)
+    assert after.geometry.centroid.distance(before.geometry.centroid) <= 10  # same centre, within grid snapping
+
+
+def test_rerun_config_refuses_to_resize_multi_parcel_runs(config):
+    manifest_config = config.model_dump(mode="json")
+    assert not is_single_box(manifest_config)
+    with pytest.raises(ValueError, match="exactly one box"):
+        rerun_config(manifest_config, date(2024, 1, 1), date(2024, 2, 1), config.parcels_geojson.parents[2], size_m=300)
