@@ -18,6 +18,7 @@ the exact Sentinel-2 files it came from.
 ```mermaid
 flowchart TD
     S2[("<b>Sentinel-2 L2A</b><br/>Earth Search STAC · Cloud-Optimized GeoTIFFs")]
+    FUTSRC[("<b>Future sources</b><br/>Google Earth Engine · Landsat 8/9<br/>Copernicus Data Space · Sentinel-1 SAR<br/><i>via the SceneSource adapter</i>")]
     CFG[/"<b>Config + parcels</b><br/>config/wurzacher_ried.yaml · data/parcels/"/]
 
     ACQ["<b>1 · Acquisition</b><br/>search both collections · drop other tiles<br/>de-duplicate acquisitions · cloud pre-filter<br/><i>sources.py · scenes.py</i>"]
@@ -26,17 +27,22 @@ flowchart TD
     STO["<b>4 · Storage</b><br/>CSV · GeoJSON (EPSG:25832) · manifest<br/>PostGIS <code>iris_staging</code> (upserts)<br/><i>outputs.py · staging.py · alembic/</i>"]
     SRV["<b>5 · Results & queries</b><br/>quality summary · validation SQL<br/>rule-based interpretation<br/><i>report.py · validation_queries.sql · interpret.py</i>"]
     UI["<b>6 · Streamlit dashboard</b><br/>KPIs · map · time series · scene ledger<br/><i>ui/app.py</i>"]
+    FUTAI["<b>Future work · AI assistant</b><br/>chat that explains plots and results<br/>grounded on the computed statistics"]
 
     S2 --> ACQ --> PRO --> ANA --> STO --> SRV --> UI
     CFG -.-> ACQ
     CFG -.-> ANA
+    FUTSRC -.->|planned| ACQ
+    SRV -.->|planned| FUTAI
 
     classDef source fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
     classDef stage fill:#f8fafc,stroke:#334155,color:#0f172a
     classDef ui fill:#dcfce7,stroke:#15803d,color:#14532d
+    classDef future fill:#fafafa,stroke:#a1a1aa,stroke-dasharray:5 4,color:#71717a
     class S2,CFG source
     class ACQ,PRO,ANA,STO,SRV stage
     class UI ui
+    class FUTSRC,FUTAI future
 ```
 
 Every stage records what it drops and why (scene ledger, pixel status counts, rejection reasons), so each
