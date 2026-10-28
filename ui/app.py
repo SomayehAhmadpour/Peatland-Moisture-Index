@@ -11,6 +11,7 @@ and writes a new run folder to output/ (network access to Earth Search needed).
 from __future__ import annotations
 
 import json
+import math
 import os
 import shutil
 from datetime import date, datetime, timedelta, timezone
@@ -21,14 +22,17 @@ import pandas as pd
 import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
+from pydantic import ValidationError
 from shapely.geometry import mapping, shape
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from streamlit_folium import st_folium
 
-from iris_ndwi.adhoc import is_single_box, metric_crs, point_config, rerun_config, run_and_write
+from iris_ndwi.adhoc import (
+    MAX_AREA_KM2, area_config, is_single_box, metric_crs, parse_coordinate, point_config, rerun_config, run_and_write,
+)  # fmt: skip
 from iris_ndwi.config import load_config
 from iris_ndwi.interpret import Obs, interpret
-from iris_ndwi.parcels import GeometryError, reproject, square_box
+from iris_ndwi.parcels import GeometryError, load_parcels, lonlat_rectangle, reproject, square_box
 from iris_ndwi.staging import DATABASE_URL_ENV, STAGING_SCHEMA, StagingGuardError, engine_for, export_run_dir
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,10 +40,12 @@ OUTPUT_DIR = ROOT / "output"
 RUN_ROOTS = [OUTPUT_DIR, ROOT / "examples" / "runs"]
 BASE_CONFIG = ROOT / "config" / "wurzacher_ried.yaml"  # quality settings reused by new analyses
 DEFAULT_POINT = (47.926242, 9.877493)  # Haidgauer Hochmoor open bog
+DEFAULT_AREA = {"area_west": "9°51′ E", "area_east": "9°55′ E", "area_south": "47°54′ N", "area_north": "47°57′ N"}  # Wurzacher Ried
+AREA_MODE = "Area (lon/lat range)"
 S2_FIRST_DATE = date(2017, 1, 1)  # Sentinel-2 L2A archive is sparse before this
 
 PRIMARY, TEXT_MUTED, BORDER = "#2563EB", "#64748B", "#E5E7EB"
-PARCEL_COLOURS = {"bog-core": "#2563EB", "bog": "#16A34A", "reserve": "#94A3B8", "reference": "#DC2626", "point": "#7C3AED"}
+PARCEL_COLOURS = {"bog-core": "#2563EB", "bog": "#16A34A", "reserve": "#94A3B8", "reference": "#DC2626", "point": "#7C3AED", "area": "#7C3AED"}
 NDWI_RANGE = (-0.80, -0.45)  # colour scale for the map; values outside are clipped
 
 st.set_page_config(page_title="IRIS · Peatland NDWI", page_icon="🛰️", layout="wide")
@@ -146,31 +152,83 @@ def new_analysis_page() -> None:
 
     st.markdown("## New analysis")
     st.caption(
-        "Click the map to place a square box anywhere, choose any period, and run the same pipeline "
-        "(same masks and quality rules as the tested runs) on live Sentinel-2 L2A data from Earth Search."
+        "Place a square box around a point, or enter an area as a longitude/latitude range; choose any period, "
+        "and run the same pipeline (same masks and quality rules as the tested runs) on live Sentinel-2 L2A data "
+        "from Earth Search."
     )
+    # The area texts are kept outside the inputs, which Streamlit forgets while point mode is shown.
+    # A map click moves the area; it is applied here, before the inputs are drawn.
+    pending = state.pop("pending_area", {})
+    area_text = state.area_text = {**DEFAULT_AREA, **state.get("area_text", {}), **pending}
+    if pending or not state.get("area_inputs_shown"):  # restore after point mode, or move after a click
+        for key, value in area_text.items():
+            state[key] = value
     map_col, form_col = st.columns([7, 5], gap="medium")
 
     with form_col:
         if message := state.pop("run_message", None):
             (st.error if message[0] == "error" else st.warning)(message[1])
-        name = st.text_input("Name", value="My box", max_chars=60)
-        size_m = st.number_input("Box edge (m)", min_value=20, max_value=2000, value=100, step=10,
-                                 help="Snapped to the 10 m Sentinel-2 pixel grid")  # fmt: skip
-        c1, c2 = st.columns(2)
-        lat = c1.number_input("Latitude", min_value=-56.0, max_value=84.0, value=float(lat), format="%.6f")
-        lon = c2.number_input("Longitude", min_value=-180.0, max_value=180.0, value=float(lon), format="%.6f")
-        state.point = (lat, lon)
+        area_mode = st.radio("Study area", ["Point + box", AREA_MODE], horizontal=True, key="study_mode",
+                             disabled=busy) == AREA_MODE  # fmt: skip
+        state.area_inputs_shown = area_mode
+        name = st.text_input("Name", value="My area" if area_mode else "My box", max_chars=60)
+        problem = None
+        if area_mode:
+            c1, c2 = st.columns(2)
+            texts = {key: (c1 if i % 2 == 0 else c2).text_input(label, key=key) for i, (key, label) in enumerate([
+                ("area_west", "West (longitude)"), ("area_east", "East (longitude)"),
+                ("area_south", "South (latitude)"), ("area_north", "North (latitude)"),
+            ])}  # fmt: skip
+            state.area_text = texts
+            try:
+                west, east = (parse_coordinate(texts[k], "lon") for k in ("area_west", "area_east"))
+                south, north = (parse_coordinate(texts[k], "lat") for k in ("area_south", "area_north"))
+                lat, lon = (south + north) / 2, (west + east) / 2
+            except ValueError as exc:
+                problem, west = str(exc), None
+            st.caption("Decimal degrees (131.4833) or degrees and minutes (131°29′ E, 46 28 N); minus or W/S for west/south.")
+        else:
+            size_m = st.number_input("Box edge (m)", min_value=20, max_value=2000, value=100, step=10,
+                                     help="Snapped to the 10 m Sentinel-2 pixel grid")  # fmt: skip
+            c1, c2 = st.columns(2)
+            lat = c1.number_input("Latitude", min_value=-56.0, max_value=84.0, value=float(lat), format="%.6f")
+            lon = c2.number_input("Longitude", min_value=-180.0, max_value=180.0, value=float(lon), format="%.6f")
+            state.point = (lat, lon)
         today = datetime.now(timezone.utc).date()
         period = st.date_input(
             "Period", value=(today - timedelta(days=180), today),
             min_value=S2_FIRST_DATE, max_value=today, format="YYYY-MM-DD",
         )  # fmt: skip
-        st.caption(
-            f"Metric CRS: {metric_crs(lat, lon)}. Every acquisition in the period (one every 2–5 days) is read "
-            "from the cloud, so a few months take about a minute and several years can take 10 minutes or more."
-        )
-        st.button("Run analysis", type="primary", use_container_width=True, disabled=busy,
+
+        config = None
+        if problem is None and not (isinstance(period, tuple) and len(period) == 2):
+            problem = "Choose a start and an end date."
+        if problem is None:
+            label = name.strip() or ("My area" if area_mode else "My box")
+            try:  # no network: the configuration and the parcel are only checked here
+                if area_mode:
+                    config = area_config(load_config(BASE_CONFIG), west, south, east, north, *period, label)
+                else:
+                    config = point_config(load_config(BASE_CONFIG), lat, lon, size_m, *period, label)
+            except ValidationError as exc:
+                problem = exc.errors()[0]["msg"].removeprefix("Value error, ")
+            except (GeometryError, ValueError) as exc:
+                problem = str(exc)
+        if problem:
+            st.error(problem)
+        elif area_mode:
+            km2 = load_parcels(config)[0].area_m2 / 1e6
+            st.caption(
+                f"Area {km2:,.1f} km² (limit {MAX_AREA_KM2} km²) · metric CRS {config.target_crs}. A scene counts only "
+                "when at least 80 % of the area is clear, which gets rarer the larger the area. A few months take "
+                "about a minute per 100 km²."
+            )
+        else:
+            st.caption(
+                f"Metric CRS: {metric_crs(lat, lon)}. Every acquisition in the period (one every 2–5 days) is read "
+                "from the cloud, so a few months take about a minute and several years can take 10 minutes or more."
+            )
+        st.button("Run analysis", type="primary", use_container_width=True, disabled=busy or config is None,
                   on_click=lambda: state.update(running=True))  # fmt: skip
         if busy:  # grey the form out and put a loading spinner over it
             st.markdown(
@@ -193,28 +251,44 @@ def new_analysis_page() -> None:
 
     with map_col:
         try:
-            box = reproject(square_box(lat, lon, size_m, 10, metric_crs(lat, lon)), metric_crs(lat, lon), "EPSG:4326")
+            if area_mode:
+                box = lonlat_rectangle(west, south, east, north, "EPSG:4326") if west is not None else None
+            else:
+                box = reproject(square_box(lat, lon, size_m, 10, metric_crs(lat, lon)), metric_crs(lat, lon), "EPSG:4326")
         except Exception:  # noqa: BLE001 - preview only
             box = None
+        if area_mode and box is None:
+            lat, lon = DEFAULT_POINT
         fmap = folium.Map(location=[lat, lon], zoom_start=15, tiles=None, control_scale=True)
+        if area_mode and box is not None:
+            min_x, min_y, max_x, max_y = box.bounds
+            fmap.fit_bounds([[min_y, min_x], [max_y, max_x]], padding=(20, 20))
         folium.TileLayer("OpenStreetMap", name="Map").add_to(fmap)
         folium.TileLayer(
             "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
             attr="Esri World Imagery", name="Satellite",
         ).add_to(fmap)  # fmt: skip
         if box is not None:
-            folium.GeoJson(mapping(box), name="Box", style_function=lambda _: {"color": "#FFFFFF", "fillColor": "#FFFFFF", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
-        folium.CircleMarker([lat, lon], radius=5, color="#FFFFFF", weight=2, fill=True, fill_color="#2563EB", fill_opacity=1,
-                            tooltip=f"{lat:.6f}, {lon:.6f}").add_to(fmap)  # vector: no marker image to download
+            folium.GeoJson(mapping(box), name="Area" if area_mode else "Box", style_function=lambda _: {"color": "#FFFFFF", "fillColor": "#FFFFFF", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
+        if not area_mode:
+            folium.CircleMarker([lat, lon], radius=5, color="#FFFFFF", weight=2, fill=True, fill_color="#2563EB", fill_opacity=1,
+                                tooltip=f"{lat:.6f}, {lon:.6f}").add_to(fmap)  # vector: no marker image to download
         folium.LayerControl(collapsed=False).add_to(fmap)
         clicked = st_folium(fmap, height=480, use_container_width=True, returned_objects=["last_clicked"], key="picker")
         click = (clicked or {}).get("last_clicked")
         if click and click != state.get("last_click"):
             state.last_click = click
-            state.point = (round(click["lat"], 6), round(click["lng"], 6))
+            if not area_mode:
+                state.point = (round(click["lat"], 6), round(click["lng"], 6))
+            elif west is not None:  # same size, new centre
+                dx, dy = click["lng"] - lon, click["lat"] - lat
+                state.pending_area = {
+                    "area_west": f"{west + dx:.5f}", "area_east": f"{east + dx:.5f}",
+                    "area_south": f"{south + dy:.5f}", "area_north": f"{north + dy:.5f}",
+                }  # fmt: skip
             st.rerun()
         st.caption(
-            "Click to move the box. Switch to the satellite layer (top right) to see the ground. "
+            f"Click to move the {'area' if area_mode else 'box'}. Switch to the satellite layer (top right) to see the ground. "
             "If the map stays empty, check that only one dashboard runs on port 8501 (e.g. `docker compose stop ui` "
             "when using the local one) and reload. Latitude and longitude can always be typed in."
         )
@@ -223,18 +297,16 @@ def new_analysis_page() -> None:
         return
     # A message is kept in session state because the rerun that re-enables the form clears the page.
     state.running = False
-    if not isinstance(period, tuple) or len(period) != 2:
-        state.run_message = ("error", "Choose a start and an end date.")
+    if config is None:  # the form shows why
         st.rerun()
     try:
-        config = point_config(load_config(BASE_CONFIG), lat, lon, size_m, period[0], period[1], name.strip() or "My box")
         result, run_dir = run_and_write(config, OUTPUT_DIR)
     except (GeometryError, ValueError, OSError, RuntimeError) as exc:
         state.run_message = ("error", f"Run failed: {exc}")
         st.rerun()
     if not result.observations:
         state.run_message = ("warning", f"Run `{result.run_id}` finished, but no scene could be used "
-                             f"({result.n_items_found} items found). Try a longer period or another point.")  # fmt: skip
+                             f"({result.n_items_found} items found). Try a longer period or another place.")  # fmt: skip
         st.rerun()
     state.run_dir = run_dir  # open the new run in the results view
     state.new_analysis = False
@@ -382,6 +454,7 @@ with st.sidebar:
 if st.session_state.new_analysis or not runs:
     new_analysis_page()
     st.stop()
+st.session_state.area_inputs_shown = False  # the area inputs are forgotten while the results are shown
 
 with st.sidebar:
     if "pending_run_dir" in st.session_state:
@@ -500,6 +573,9 @@ with map_col:
             },
         })  # fmt: skip
     centre = parcel_by_id[parcel_id]["geometry"].centroid
+    min_x, min_y, max_x, max_y = parcel_by_id[parcel_id]["geometry"].bounds
+    span = max(max_x - min_x, (max_y - min_y) / math.cos(math.radians(centre.y)), 1e-6)
+    zoom = min(12.6, math.log2(600 / span))  # whole parcel visible: a 20 km area opens at about zoom 11
     deck = pdk.Deck(
         layers=[
             pdk.Layer(
@@ -510,7 +586,7 @@ with map_col:
                 get_line_width="properties.width", line_width_min_pixels=1,
             )
         ],
-        initial_view_state=pdk.ViewState(latitude=centre.y, longitude=centre.x, zoom=12.6),
+        initial_view_state=pdk.ViewState(latitude=centre.y, longitude=centre.x, zoom=zoom),
         map_style="light",
         tooltip={"html": "<b>{name}</b><br/>NDWI median: {ndwi}<br/>valid pixels: {valid}<br/>{status}"},
     )  # fmt: skip

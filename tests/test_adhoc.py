@@ -4,11 +4,16 @@ import json
 from datetime import date
 
 import pytest
-from shapely.geometry import Point
+from pyproj import Geod
+from shapely.geometry import Point, box, mapping
 
-from iris_ndwi.adhoc import box_parcel_id, is_single_box, metric_crs, point_config, rerun_config, run_and_write
+from iris_ndwi.adhoc import (
+    MAX_AREA_KM2, area_config, box_parcel_id, is_single_box, metric_crs, parse_coordinate, point_config, rerun_config,
+    run_and_write,
+)  # fmt: skip
 from iris_ndwi.config import BoxParcel
-from iris_ndwi.parcels import load_parcels
+from iris_ndwi.parcels import GeometryError, load_parcels
+from iris_ndwi.pipeline import run_pipeline
 from iris_ndwi.scenes import dominant_tile
 from iris_ndwi.synthetic import SyntheticSource
 
@@ -97,3 +102,72 @@ def test_rerun_config_refuses_to_resize_multi_parcel_runs(config):
     assert not is_single_box(manifest_config)
     with pytest.raises(ValueError, match="exactly one box"):
         rerun_config(manifest_config, date(2024, 1, 1), date(2024, 2, 1), config.parcels_geojson.parents[2], size_m=300)
+
+
+@pytest.mark.parametrize(
+    ("text", "axis", "value"),
+    [
+        ("131.4833", "lon", 131.4833),
+        ("131°29′", "lon", 131 + 29 / 60),
+        ("132°15′ E", "lon", 132.25),
+        ("46 59 N", "lat", 46 + 59 / 60),
+        ("46°28'30\"N", "lat", 46.475),
+        ("-70.6", "lon", -70.6),
+        ("W70.6", "lon", -70.6),
+        ("33°52′ S", "lat", -(33 + 52 / 60)),
+    ],
+)
+def test_parse_coordinate(text, axis, value):
+    assert parse_coordinate(text, axis) == pytest.approx(value)
+
+
+@pytest.mark.parametrize(
+    ("text", "axis"), [("46 N", "lon"), ("10 E", "lat"), ("-46 S", "lat"), ("91", "lat"), ("46 75", "lat"), ("abc", "lon"), ("", "lat")]
+)
+def test_parse_coordinate_rejects(text, axis):
+    with pytest.raises(ValueError):
+        parse_coordinate(text, axis)
+
+
+def test_area_config_builds_the_rectangle(config):
+    cfg = area_config(config, 9.86, 47.92, 9.89, 47.935, date(2024, 5, 1), date(2024, 8, 31), "Ried")
+    assert (cfg.boxes, cfg.mgrs_tile, cfg.target_crs) == ([], None, "EPSG:25832")
+    (parcel,) = load_parcels(cfg)
+    assert (parcel.parcel_id, parcel.kind) == ("area-9p86000e-47p92000n-9p89000e-47p93500n", "area")
+    geodesic, _ = Geod(ellps="WGS84").geometry_area_perimeter(box(9.86, 47.92, 9.89, 47.935))
+    assert parcel.area_m2 == pytest.approx(abs(geodesic), rel=0.002)  # UTM scale error only
+
+
+def test_area_config_uses_the_local_utm_zone_and_limits_the_size(config):
+    cfg = area_config(config, 131.5, 46.5, 131.6, 46.6, date(2024, 5, 1), date(2024, 8, 31), "Far east")
+    assert cfg.target_crs == "EPSG:32652"
+    with pytest.raises(GeometryError, match=f"limit is {MAX_AREA_KM2} km²"):  # the 131°29′–132°15′ E, 46°28′–46°59′ N example
+        area_config(config, 131 + 29 / 60, 46 + 28 / 60, 132.25, 46 + 59 / 60, date(2024, 5, 1), date(2024, 8, 31), "Big")
+    with pytest.raises(ValueError, match="east must be greater than west"):
+        area_config(config, 10.0, 47.0, 9.9, 47.1, date(2024, 5, 1), date(2024, 8, 31), "x")
+
+
+def test_area_run_and_rerun(config, tmp_path):
+    cfg = area_config(config, 9.87, 47.922, 9.885, 47.93, date(2021, 1, 1), date(2026, 1, 1), "Ried")
+    result, run_dir = run_and_write(cfg, tmp_path, SyntheticSource())
+    assert result.config.mgrs_tile == "32UNU" and any(o.status == "accepted" for o in result.observations)
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    assert not is_single_box(manifest["config"])  # an area is re-run with new dates only
+    again = rerun_config(manifest["config"], date(2024, 1, 1), date(2024, 12, 31), tmp_path)
+    assert load_parcels(again)[0].geometry.equals(result.parcels[0].geometry)
+
+
+def test_area_outside_every_tile_is_an_error(config, real_items):
+    # a real 32UNU item with its footprint (the fixtures leave footprints out); reading is never reached
+    item = {**real_items[0], "geometry": mapping(box(9.0, 47.7, 10.5, 48.7))}
+
+    class RecordedItems:
+        name = "recorded"
+
+        def search(self, aoi_wgs84, start, end):
+            return [item]
+
+    assert dominant_tile([item], box(9.86, 47.92, 9.89, 47.935)) == "32UNU"  # an area inside the tile
+    berlin = area_config(config, 13.3, 52.4, 13.4, 52.5, date(2021, 1, 1), date(2026, 1, 1), "Berlin")
+    with pytest.raises(ValueError, match="no single Sentinel-2 tile"):
+        run_pipeline(berlin, RecordedItems(), load_parcels(berlin))

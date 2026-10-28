@@ -38,6 +38,26 @@ class BoxParcel(BaseModel):
     snap_m: float | None = Field(default=10, gt=0)
 
 
+class AreaParcel(BaseModel):
+    """A longitude/latitude rectangle (WGS84), e.g. 131°29′–132°15′ E, 46°28′–46°59′ N."""
+
+    parcel_id: str = Field(pattern=r"^[a-z0-9][a-z0-9-]{1,62}$")
+    name: str
+    kind: str
+    west: float = Field(ge=-180, le=180)
+    south: float = Field(ge=-90, le=90)
+    east: float = Field(ge=-180, le=180)
+    north: float = Field(ge=-90, le=90)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> AreaParcel:
+        if self.east <= self.west:
+            raise ValueError("east must be greater than west (areas across the 180° meridian are not supported)")
+        if self.north <= self.south:
+            raise ValueError("north must be greater than south")
+        return self
+
+
 class PipelineConfig(BaseModel):
     study_area: str
     stac_url: str = "https://earth-search.aws.element84.com/v1"
@@ -65,6 +85,7 @@ class PipelineConfig(BaseModel):
 
     parcels_geojson: Path | None = None
     boxes: list[BoxParcel] = []
+    areas: list[AreaParcel] = []
     output_dir: Path = Path("output")
     max_workers: int = Field(default=4, ge=1, le=32)
 
@@ -82,8 +103,8 @@ class PipelineConfig(BaseModel):
     def _check_ranges(self) -> PipelineConfig:
         if self.end_date < self.start_date:
             raise ValueError("end_date is before start_date")
-        if not self.parcels_geojson and not self.boxes:
-            raise ValueError("configure parcels_geojson and/or boxes")
+        if not self.parcels_geojson and not self.boxes and not self.areas:
+            raise ValueError("configure parcels_geojson, boxes and/or areas")
         return self
 
 

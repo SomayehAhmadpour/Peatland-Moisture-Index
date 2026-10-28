@@ -14,12 +14,12 @@ from functools import lru_cache
 from pathlib import Path
 
 from pyproj import Transformer
-from shapely import make_valid
+from shapely import make_valid, segmentize
 from shapely.geometry import MultiPolygon, Polygon, box, shape
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import transform
 
-from iris_ndwi.config import BoxParcel, PipelineConfig
+from iris_ndwi.config import AreaParcel, BoxParcel, PipelineConfig
 
 
 class GeometryError(ValueError):
@@ -110,6 +110,32 @@ def box_parcel(spec: BoxParcel, crs: str) -> Parcel:
     )
 
 
+def lonlat_rectangle(west: float, south: float, east: float, north: float, crs: str) -> Polygon:
+    """A longitude/latitude rectangle in the metric CRS.
+
+    The edges are densified first (every 0.005°, about 500 m), because lines of
+    constant latitude are curved in UTM.
+    """
+    return reproject(segmentize(box(west, south, east, north), 0.005), "EPSG:4326", crs)
+
+
+def area_parcel(spec: AreaParcel, crs: str) -> Parcel:
+    geometry, repaired = validate_geometry(
+        lonlat_rectangle(spec.west, spec.south, spec.east, spec.north, crs), spec.parcel_id
+    )
+    return Parcel(
+        parcel_id=spec.parcel_id,
+        name=spec.name,
+        kind=spec.kind,
+        source="config",
+        source_ref=f"area:{spec.west:.6f},{spec.south:.6f},{spec.east:.6f},{spec.north:.6f}",
+        licence="n/a (derived from configured coordinates)",
+        geometry=geometry,
+        crs=crs,
+        geometry_repaired=repaired,
+    )
+
+
 def load_geojson_parcels(path: Path, crs: str) -> list[Parcel]:
     """Load parcels from a GeoJSON FeatureCollection in EPSG:4326."""
     collection = json.loads(Path(path).read_text())
@@ -141,6 +167,7 @@ def load_parcels(config: PipelineConfig) -> list[Parcel]:
     if config.parcels_geojson:
         parcels += load_geojson_parcels(config.parcels_geojson, config.target_crs)
     parcels += [box_parcel(spec, config.target_crs) for spec in config.boxes]
+    parcels += [area_parcel(spec, config.target_crs) for spec in config.areas]
     ids = [p.parcel_id for p in parcels]
     duplicates = sorted({i for i in ids if ids.count(i) > 1})
     if duplicates:

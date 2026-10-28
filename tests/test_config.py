@@ -28,7 +28,7 @@ def test_example_config_loads(config):
         ({"min_valid_fraction": 0}, "greater than 0"),
         ({"min_valid_fraction": 1.5}, "less than or equal to 1"),
         ({"mgrs_tile": "UNU32"}, "pattern"),
-        ({"boxes": []}, "parcels_geojson and/or boxes"),
+        ({"boxes": []}, "boxes and/or areas"),
     ],
 )
 def test_invalid_configs_rejected(override, message):

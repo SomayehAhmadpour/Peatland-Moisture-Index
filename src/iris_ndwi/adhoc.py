@@ -1,8 +1,8 @@
 """Ad-hoc runs started from the dashboard.
 
-- a square box around any point: it inherits every quality setting from a
-  base configuration; only the parcel, the dates, the metric CRS and the
-  MGRS tile change;
+- a square box around any point, or a longitude/latitude rectangle (an
+  area): it inherits every quality setting from a base configuration; only
+  the parcel, the dates, the metric CRS and the MGRS tile change;
 - an earlier run repeated with new dates (and, for a single-box run, a new
   box size): its manifest holds the complete configuration, so everything
   else stays identical.
@@ -10,13 +10,14 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
 
-from iris_ndwi.config import BoxParcel, PipelineConfig
+from iris_ndwi.config import AreaParcel, BoxParcel, PipelineConfig
 from iris_ndwi.outputs import write_outputs
-from iris_ndwi.parcels import load_parcels
+from iris_ndwi.parcels import GeometryError, load_parcels
 from iris_ndwi.pipeline import RunResult, run_pipeline
 from iris_ndwi.report import quality_summary
 from iris_ndwi.sources import SceneSource, StacSource
@@ -70,6 +71,91 @@ def point_config(
         "parcels_geojson": None,
         "boxes": [box.model_dump()],
     })  # fmt: skip
+
+
+# Every scene is read as one window over the whole area (about 50 bytes of
+# working memory per 10 m pixel, times max_workers scenes at once).
+MAX_AREA_KM2 = 400
+
+
+def parse_coordinate(text: str, axis: str) -> float:
+    """Decimal degrees or degrees, minutes and seconds, with an optional hemisphere letter.
+
+    axis is "lat" or "lon". Accepted: "131.4833", "-70.6", "131°29′", "131°29′ E",
+    "46 28 30 N", "W70.6", "46°28'30\"N".
+    """
+    value = text.strip().upper()
+    hemisphere = ""
+    if value[-1:] in ("N", "S", "E", "W"):
+        hemisphere, value = value[-1], value[:-1]
+    elif value[:1] in ("N", "S", "E", "W"):
+        hemisphere, value = value[0], value[1:]
+    value = value.strip()
+    negative = value.startswith("-")
+    parts = [p for p in re.split(r"[°º′″'\"\s:]+", value.lstrip("-").strip()) if p]
+    try:
+        numbers = [float(p) for p in parts]
+    except ValueError:
+        numbers = []
+    if not 1 <= len(numbers) <= 3 or any(n < 0 for n in numbers) or any(n >= 60 for n in numbers[1:]):
+        raise ValueError(f"cannot read {text!r} as a coordinate, e.g. 131.4833 or 131°29′ E")
+    allowed, limit = ("NS", 90) if axis == "lat" else ("EW", 180)
+    if hemisphere and hemisphere not in allowed:
+        raise ValueError(f"{text!r}: use {' or '.join(allowed)} for {'latitude' if axis == 'lat' else 'longitude'}")
+    if negative and hemisphere:
+        raise ValueError(f"{text!r}: use either a minus sign or {' / '.join(allowed)}, not both")
+    degrees = sum(n / 60**i for i, n in enumerate(numbers))
+    if degrees > limit:
+        raise ValueError(f"{text!r} is outside ±{limit}°")
+    return -degrees if negative or hemisphere in ("S", "W") else degrees
+
+
+def area_parcel_id(west: float, south: float, east: float, north: float) -> str:
+    def code(value: float, positive: str, negative: str) -> str:
+        return f"{abs(value):.5f}{positive if value >= 0 else negative}".replace(".", "p")
+
+    return f"area-{code(west, 'e', 'w')}-{code(south, 'n', 's')}-{code(east, 'e', 'w')}-{code(north, 'n', 's')}"
+
+
+def area_config(
+    base: PipelineConfig,
+    west: float,
+    south: float,
+    east: float,
+    north: float,
+    start: date,
+    end: date,
+    name: str,
+) -> PipelineConfig:
+    """Like point_config, for a longitude/latitude rectangle up to MAX_AREA_KM2."""
+    area = AreaParcel(
+        parcel_id=area_parcel_id(west, south, east, north),
+        name=name,
+        kind="area",
+        west=west,
+        south=south,
+        east=east,
+        north=north,
+    )
+    lat, lon = (south + north) / 2, (west + east) / 2
+    config = PipelineConfig.model_validate({
+        **base.model_dump(),
+        "study_area": f"{name} ({south:.4f}–{north:.4f} N, {west:.4f}–{east:.4f} E)",
+        "mgrs_tile": None,
+        "start_date": start,
+        "end_date": end,
+        "target_crs": metric_crs(lat, lon),
+        "parcels_geojson": None,
+        "boxes": [],
+        "areas": [area.model_dump()],
+    })  # fmt: skip
+    (parcel,) = load_parcels(config)
+    if parcel.area_m2 / 1e6 > MAX_AREA_KM2:
+        raise GeometryError(
+            f"the area is {parcel.area_m2 / 1e6:,.0f} km²; the limit is {MAX_AREA_KM2} km² "
+            "(each scene is read in full at 10 m). Choose a smaller area or split it into several runs."
+        )
+    return config
 
 
 def is_single_box(manifest_config: dict[str, Any]) -> bool:

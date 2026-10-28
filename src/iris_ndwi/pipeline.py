@@ -44,7 +44,8 @@ class RunResult:
 
 
 def config_digest(config: PipelineConfig) -> str:
-    payload = json.dumps(config.model_dump(mode="json"), sort_keys=True)
+    # an empty `areas` (added later) is left out, so earlier configurations keep their digest and run_id
+    payload = json.dumps(config.model_dump(mode="json", exclude=set() if config.areas else {"areas"}), sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
@@ -98,6 +99,11 @@ def run_pipeline(config: PipelineConfig, source: SceneSource, parcels: list[Parc
     items = source.search(aoi_wgs84, config.start_date.isoformat(), config.end_date.isoformat())
     if config.mgrs_tile is None:
         tile = dominant_tile(items, aoi_wgs84)
+        if tile is None and items:
+            raise ValueError(
+                "no single Sentinel-2 tile (about 110 km × 110 km) covers the whole area; "
+                "choose a smaller area or move it away from the tile edge"
+            )
         log.info("mgrs_tile not configured, using %s", tile)
         config = config.model_copy(update={"mgrs_tile": tile})  # recorded in the manifest
 

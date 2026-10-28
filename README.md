@@ -151,6 +151,22 @@ Europe, WGS 84 elsewhere), so a 100 m box stays 100 m. The run is written to `ou
 opens in the dashboard. It needs network access to Earth Search: six months took about 1 minute in testing,
 and several years can take 10 minutes or more. In code: [`adhoc.py`](src/iris_ndwi/adhoc.py).
 
+Choose **Area (lon/lat range)** instead of *Point + box* to analyse a rectangle given by its west, east, south
+and north edges, e.g. 131°29′–132°15′ E, 46°28′–46°59′ N. Coordinates can be typed as decimal degrees
+(`131.4833`) or degrees and minutes (`131°29′ E`, `46 28 N`, seconds optional); west and south are negative or
+marked W/S. Clicking the map moves the area and keeps its size. The whole area is one parcel, built in the
+metric CRS of its centre with densified edges, because parallels are curved in UTM. Two limits apply:
+
+- **At most 400 km².** Every scene is read as one 10 m window over the area. A 400 km² area peaked at about
+  0.7 GB of memory with 8 scenes in parallel (`max_workers`), and one month took 25 s. The example above
+  is about 3,400 km², so the form asks to split it.
+- **One Sentinel-2 tile** (about 110 × 110 km). The time series stays on one pixel grid. An area that no tile
+  covers completely stops with a message before any pixel is read.
+
+The quality rules are unchanged: a scene counts only when at least 80 % of the area is clear. That gets rarer as
+areas grow (in the 400 km² test, the best July scene was 78.7 % clear), so larger areas yield fewer
+accepted observations.
+
 **Manage this run** (sidebar, under the run list):
 - **Re-run with new dates** repeats the selected run with the same parcels and settings, read from its
   `manifest.json`. Only the dates change, and the result is a new run. For a run made with
@@ -186,6 +202,7 @@ Copy the file to experiment (`cp config/wurzacher_ried.yaml config/my_test.yaml`
 | `water_threshold` | 0.0 | NDWI above this counts towards `water_fraction` |
 | `parcels_geojson` | OSM snapshot | GeoJSON (EPSG:4326) with `parcel_id`, `name`, `kind`, `source`, `source_ref`, `licence` properties; omit to use boxes only |
 | `boxes` | core + reference | Square parcels from a WGS 84 centre, `size_m` and `snap_m` (10 = Sentinel-2 grid) |
+| `areas` | none | Longitude/latitude rectangles (`west`, `south`, `east`, `north`, WGS 84), as made by *Area (lon/lat range)* |
 | `max_workers` | 8 | Parallel scene reads |
 
 **Add a parcel:** append a box (or a feature to a GeoJSON file) with a new, unique `parcel_id`
@@ -201,8 +218,8 @@ Copy the file to experiment (`cp config/wurzacher_ried.yaml config/my_test.yaml`
     snap_m: 10
 ```
 
-**Another study area:** for one box, use **＋ New analysis** in the dashboard. Otherwise set `study_area`,
-the boxes and/or `parcels_geojson`, and the `mgrs_tile` that contains them (or omit `mgrs_tile`). The tile code is in the STAC item properties (`grid:code`), or you can run once: every
+**Another study area:** for one box or one lon/lat area, use **＋ New analysis** in the dashboard. Otherwise set `study_area`,
+the boxes, areas and/or `parcels_geojson`, and the `mgrs_tile` that contains them (or omit `mgrs_tile`). The tile code is in the STAC item properties (`grid:code`), or you can run once: every
 item from another tile is listed in `scenes.csv` as `other_mgrs_tile`. Parcels must stay inside one tile
 in UTM zone 32 for EPSG:25832 to remain the appropriate metric CRS.
 `scripts/fetch_osm_parcels.py` shows how to turn OSM features into a parcel file.
@@ -346,7 +363,7 @@ File outputs per run, under `output/<run_id>/`: `observations.csv`, `scenes.csv`
 
 ## Tests
 
-`uv run pytest` runs 112 offline tests in under a second. `docker compose run --rm tests` runs all 114, adding two PostGIS
+`uv run pytest` runs 131 offline tests in under a second. `docker compose run --rm tests` runs all 133, adding two PostGIS
 round trips: the `iris_staging` writer (SRID 25832, geometry validity, idempotent upserts; it deletes its own rows) and
 the export into a fresh schema (tables created on request only, idempotent, refuses to move an existing parcel; the
 schema is dropped afterwards).
@@ -364,7 +381,9 @@ Synthetic scene ids carry a `SYNTHETIC_` prefix, so test data can never overwrit
 - **End to end (synthetic scenes):** snow, fog missed by SCL, half cloud, tile-edge nodata, read error,
   wrong tile, cloud pre-filter, double offset, an empty period, and identical results on repeated runs.
 - **New analysis and re-runs:** metric CRS per UTM zone, automatic tile choice from real STAC items, box
-  size, a complete point run written to disk, and re-runs with new dates or a resized box.
+  size, a complete point run written to disk, and re-runs with new dates or a resized box. Areas: coordinates
+  in decimal and degree-minute notation (and invalid ones), area size against the geodesic area, the
+  400 km² limit, a complete area run and its re-run, and an area outside every tile.
 - **PostGIS export:** `iris_core`, `public` and invalid schema names are refused; run-folder rows get the
   right types (empty CSV cells become NULL); a box in another UTM zone is reprojected to EPSG:25832.
 
