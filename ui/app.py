@@ -10,7 +10,6 @@ and writes a new run folder to output/ (network access to Earth Search needed).
 
 from __future__ import annotations
 
-import base64
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -34,8 +33,6 @@ RUN_ROOTS = [OUTPUT_DIR, ROOT / "examples" / "runs"]
 BASE_CONFIG = ROOT / "config" / "wurzacher_ried.yaml"  # quality settings reused by new analyses
 DEFAULT_POINT = (47.926242, 9.877493)  # Haidgauer Hochmoor open bog
 S2_FIRST_DATE = date(2017, 1, 1)  # Sentinel-2 L2A archive is sparse before this
-# Streamlit's own "running" animation (Apache-2.0), shown large over the form while a run is busy
-RUNNING_GIF = "data:image/gif;base64," + base64.b64encode((ROOT / "ui" / "assets" / "running.gif").read_bytes()).decode()
 
 PRIMARY, TEXT_MUTED, BORDER = "#2563EB", "#64748B", "#E5E7EB"
 PARCEL_COLOURS = {"bog-core": "#2563EB", "bog": "#16A34A", "reserve": "#94A3B8", "reference": "#DC2626", "point": "#7C3AED"}
@@ -169,15 +166,21 @@ def new_analysis_page() -> None:
         )
         st.button("Run analysis", type="primary", use_container_width=True, disabled=busy,
                   on_click=lambda: state.update(running=True))  # fmt: skip
-        if busy:  # grey the form out and put the running animation over it
+        if busy:  # grey the form out and put a loading spinner over it
             st.markdown(
-                f"""<div class="run-overlay"></div><style>
-                div[data-testid="stColumn"]:has(.run-overlay) {{ position: relative; align-self: flex-start; }}
-                div[data-testid="stColumn"]:has(.run-overlay)::after {{
+                """<div class="run-overlay"></div><style>
+                div[data-testid="stColumn"]:has(.run-overlay) { position: relative; align-self: flex-start; }
+                div[data-testid="stColumn"]:has(.run-overlay)::after {
                     content: "Running analysis …"; position: absolute; inset: -8px; z-index: 1000;
-                    background: rgba(100, 116, 139, 0.6) url({RUNNING_GIF}) no-repeat center calc(50% - 24px) / 112px;
-                    border-radius: 12px; display: flex; align-items: center; justify-content: center;
-                    padding-top: 150px; color: #0F172A; font-weight: 600; cursor: wait; }}
+                    background: rgba(100, 116, 139, 0.75); border-radius: 12px;
+                    display: flex; align-items: center; justify-content: center;
+                    padding-top: 110px; color: #0F172A; font-weight: 600; cursor: wait; }
+                div[data-testid="stColumn"]:has(.run-overlay)::before {
+                    content: ""; position: absolute; left: 50%; top: calc(50% - 28px); z-index: 1001;
+                    width: 56px; height: 56px; margin: -28px 0 0 -28px; border-radius: 50%;
+                    border: 6px solid rgba(255, 255, 255, 0.7); border-top-color: #0F172A;
+                    animation: run-spin 0.9s linear infinite; }
+                @keyframes run-spin { to { transform: rotate(360deg); } }
                 </style>""",
                 unsafe_allow_html=True,
             )
