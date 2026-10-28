@@ -201,7 +201,8 @@ def new_analysis_page() -> None:
         ).add_to(fmap)  # fmt: skip
         if box is not None:
             folium.GeoJson(mapping(box), name="Box", style_function=lambda _: {"color": "#FFFFFF", "fillColor": "#FFFFFF", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
-        folium.Marker([lat, lon], tooltip=f"{lat:.6f}, {lon:.6f}").add_to(fmap)
+        folium.CircleMarker([lat, lon], radius=5, color="#FFFFFF", weight=2, fill=True, fill_color="#2563EB", fill_opacity=1,
+                            tooltip=f"{lat:.6f}, {lon:.6f}").add_to(fmap)  # vector: no marker image to download
         folium.LayerControl(collapsed=False).add_to(fmap)
         clicked = st_folium(fmap, height=480, use_container_width=True, returned_objects=["last_clicked"], key="picker")
         click = (clicked or {}).get("last_clicked")
@@ -209,7 +210,11 @@ def new_analysis_page() -> None:
             state.last_click = click
             state.point = (round(click["lat"], 6), round(click["lng"], 6))
             st.rerun()
-        st.caption("Click to move the box. Switch to the satellite layer (top right) to see the ground.")
+        st.caption(
+            "Click to move the box. Switch to the satellite layer (top right) to see the ground. "
+            "If the map stays empty, open the dashboard in Chrome, Safari or Firefox: VS Code's built-in browser "
+            "can't load this map. Latitude and longitude can always be typed in."
+        )
 
     if not busy:
         return
