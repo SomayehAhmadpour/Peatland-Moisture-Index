@@ -1,13 +1,17 @@
-"""Ad-hoc runs for one square box around any point (used by the dashboard).
+"""Ad-hoc runs started from the dashboard.
 
-The box inherits every quality setting from a base configuration; only the
-parcel, the dates, the metric CRS and the MGRS tile change.
+- a square box around any point: it inherits every quality setting from a
+  base configuration; only the parcel, the dates, the metric CRS and the
+  MGRS tile change;
+- an earlier run repeated with new dates: its manifest holds the complete
+  configuration, so everything except the dates stays identical.
 """
 
 from __future__ import annotations
 
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 from iris_ndwi.config import BoxParcel, PipelineConfig
 from iris_ndwi.outputs import write_outputs
@@ -60,7 +64,18 @@ def point_config(
     })  # fmt: skip
 
 
-def run_point(config: PipelineConfig, output_dir: Path, source: SceneSource | None = None) -> tuple[RunResult, Path]:
+def rerun_config(manifest_config: dict[str, Any], start: date, end: date, root: Path) -> PipelineConfig:
+    """Configuration of an earlier run (from its manifest) with new dates.
+
+    A relative parcels_geojson path is resolved against root (the repository).
+    """
+    config = PipelineConfig.model_validate({**manifest_config, "start_date": start, "end_date": end})
+    if config.parcels_geojson and not config.parcels_geojson.is_absolute():
+        config = config.model_copy(update={"parcels_geojson": root / config.parcels_geojson})
+    return config
+
+
+def run_and_write(config: PipelineConfig, output_dir: Path, source: SceneSource | None = None) -> tuple[RunResult, Path]:
     source = source or StacSource(config.stac_url, config.collections)
     result = run_pipeline(config, source, load_parcels(config))
     run_dir = write_outputs(result, output_dir)

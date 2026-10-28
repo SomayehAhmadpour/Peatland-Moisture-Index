@@ -11,6 +11,7 @@ and writes a new run folder to output/ (network access to Earth Search needed).
 from __future__ import annotations
 
 import json
+import shutil
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -22,7 +23,7 @@ import streamlit as st
 from shapely.geometry import mapping, shape
 from streamlit_folium import st_folium
 
-from iris_ndwi.adhoc import metric_crs, point_config, run_point
+from iris_ndwi.adhoc import metric_crs, point_config, rerun_config, run_and_write
 from iris_ndwi.config import load_config
 from iris_ndwi.interpret import Obs, interpret
 from iris_ndwi.parcels import GeometryError, reproject, square_box
@@ -217,7 +218,7 @@ def new_analysis_page() -> None:
         st.rerun()
     try:
         config = point_config(load_config(BASE_CONFIG), lat, lon, size_m, period[0], period[1], name.strip() or "My box")
-        result, run_dir = run_point(config, OUTPUT_DIR)
+        result, run_dir = run_and_write(config, OUTPUT_DIR)
     except (GeometryError, ValueError, OSError, RuntimeError) as exc:
         state.run_message = ("error", f"Run failed: {exc}")
         st.rerun()
@@ -227,6 +228,83 @@ def new_analysis_page() -> None:
         st.rerun()
     state.run_dir = run_dir  # open the new run in the results view
     state.new_analysis = False
+    st.rerun()
+
+
+# ---------------------------------------------------------------------------
+# Manage a run: re-run with new dates, delete
+# ---------------------------------------------------------------------------
+
+
+def is_own_run(run_dir: Path) -> bool:
+    """Runs in output/ can be deleted; the examples belong to the repository."""
+    return run_dir.resolve().parent == OUTPUT_DIR.resolve() and (run_dir / "manifest.json").is_file()
+
+
+def delete_run(run_dir: Path) -> None:  # button callback: runs before the script, so it may reset widgets
+    state = st.session_state
+    state.pop("confirm_delete", None)
+    if not is_own_run(run_dir):
+        state.manage_message = ("error", "Only runs in output/ can be deleted.")
+        return
+    shutil.rmtree(run_dir)
+    state.pop("run_dir", None)  # fall back to the newest remaining run
+    state.manage_message = ("success", f"Deleted run {run_dir.name}.")
+
+
+def manage_run(run_dir: Path, manifest: dict) -> None:
+    state = st.session_state
+    request = state.get("rerun_request")
+    cfg = manifest["config"]
+    with st.expander("Manage this run", expanded=bool(request) or "confirm_delete" in state):
+        if message := state.pop("manage_message", None):
+            getattr(st, message[0])(message[1])
+
+        today = datetime.now(timezone.utc).date()
+        period_key = f"rerun_period_{run_dir.name}"
+        st.date_input(
+            "New period", value=(date.fromisoformat(cfg["start_date"]), min(date.fromisoformat(cfg["end_date"]), today)),
+            min_value=S2_FIRST_DATE, max_value=today, format="YYYY-MM-DD", key=period_key,
+        )  # fmt: skip
+        synthetic = manifest["synthetic_data"]
+        st.button(
+            "Re-run with new dates", use_container_width=True, disabled=bool(request) or synthetic,
+            on_click=lambda: state.update(rerun_request=(run_dir, state[period_key])),
+            help="Same parcels and settings as this run; only the dates change. The result is a new run.",
+        )  # fmt: skip
+        st.caption("Synthetic test runs can't be re-run here." if synthetic else
+                   "Re-runs read every scene again: a few months take about a minute, several years 10 minutes or more.")  # fmt: skip
+
+        if not is_own_run(run_dir):
+            st.caption("Example runs belong to the repository and can't be deleted here.")
+        elif state.get("confirm_delete") == str(run_dir):
+            st.warning(f"Delete **{run_label(str(run_dir))}**? Its folder in output/ is removed; this can't be undone.")
+            yes, no = st.columns(2)
+            yes.button("Delete", type="primary", use_container_width=True, on_click=delete_run, args=(run_dir,))
+            no.button("Cancel", use_container_width=True, on_click=lambda: state.pop("confirm_delete", None))
+        else:
+            st.button("Delete this run", use_container_width=True, disabled=bool(request),
+                      on_click=lambda: state.update(confirm_delete=str(run_dir)))  # fmt: skip
+
+    if not request:
+        return
+    # The run happens after the buttons are drawn, so they show as disabled while it is busy.
+    del state["rerun_request"]
+    old_dir, period = request
+    if not isinstance(period, tuple) or len(period) != 2:
+        state.manage_message = ("error", "Choose a start and an end date.")
+        st.rerun()
+    start, end = period
+    try:
+        config = rerun_config(load_run(str(old_dir))["manifest"]["config"], start, end, ROOT)
+        with st.spinner(f"Re-running {start} → {end} …"):
+            result, new_dir = run_and_write(config, OUTPUT_DIR)
+    except (GeometryError, ValueError, OSError, RuntimeError) as exc:
+        state.manage_message = ("error", f"Re-run failed: {exc}")
+        st.rerun()
+    if not result.observations:
+        state.manage_message = ("warning", f"Re-run `{result.run_id}` finished, but no scene could be used.")
+    state.pending_run_dir = new_dir  # selected on the next pass, before the Run selectbox is drawn
     st.rerun()
 
 
@@ -253,11 +331,14 @@ if st.session_state.new_analysis or not runs:
     st.stop()
 
 with st.sidebar:
+    if "pending_run_dir" in st.session_state:
+        st.session_state.run_dir = st.session_state.pop("pending_run_dir")
     if st.session_state.get("run_dir") not in runs:
         st.session_state.run_dir = runs[0]
     run_dir = st.selectbox("Run", runs, key="run_dir", format_func=lambda p: run_label(str(p)))
     data = load_run(str(run_dir))
     obs_all, scenes, manifest, parcels = data["obs"], data["scenes"], data["manifest"], data["parcels"]
+    manage_run(run_dir, manifest)
     if obs_all.empty:
         st.warning("This run has no observations.")
         st.stop()

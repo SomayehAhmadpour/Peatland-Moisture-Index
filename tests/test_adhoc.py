@@ -6,7 +6,7 @@ from datetime import date
 import pytest
 from shapely.geometry import Point
 
-from iris_ndwi.adhoc import metric_crs, point_config, run_point
+from iris_ndwi.adhoc import metric_crs, point_config, rerun_config, run_and_write
 from iris_ndwi.parcels import load_parcels
 from iris_ndwi.scenes import dominant_tile
 from iris_ndwi.synthetic import SyntheticSource
@@ -46,10 +46,28 @@ def test_dominant_tile_from_real_items(real_items):
 
 def test_run_point_resolves_tile_and_writes_run(config, tmp_path):
     cfg = point_config(config, 47.926242, 9.877493, 100, date(2021, 1, 1), date(2026, 1, 1), "Bog test")
-    result, run_dir = run_point(cfg, tmp_path, SyntheticSource())
+    result, run_dir = run_and_write(cfg, tmp_path, SyntheticSource())
     assert result.config.mgrs_tile == "32UNU"
     assert {o.parcel_id for o in result.observations} == {"point-box"}
     assert any(o.status == "accepted" for o in result.observations)
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert manifest["config"]["mgrs_tile"] == "32UNU"
     assert {p.name for p in run_dir.iterdir()} >= {"observations.csv", "scenes.csv", "parcels.geojson", "manifest.json"}
+
+
+def test_rerun_config_changes_only_the_dates(config, tmp_path):
+    _, run_dir = run_and_write(config, tmp_path, SyntheticSource())
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    root = config.parcels_geojson.parents[2]  # repository root
+    manifest["config"]["parcels_geojson"] = "data/parcels/wurzacher_ried_osm.geojson"  # as committed: relative
+    cfg = rerun_config(manifest["config"], date(2024, 1, 1), date(2024, 12, 31), root)
+    assert (cfg.start_date, cfg.end_date) == (date(2024, 1, 1), date(2024, 12, 31))
+    assert cfg.parcels_geojson == root / "data/parcels/wurzacher_ried_osm.geojson"
+    unchanged = {"start_date", "end_date", "parcels_geojson"}
+    assert cfg.model_dump(exclude=unchanged) == config.model_dump(exclude=unchanged)
+    assert [p.parcel_id for p in load_parcels(cfg)] == [p.parcel_id for p in load_parcels(config)]
+
+
+def test_rerun_config_rejects_bad_dates(config):
+    with pytest.raises(ValueError, match="end_date is before start_date"):
+        rerun_config(config.model_dump(mode="json"), date(2024, 5, 1), date(2024, 4, 1), config.parcels_geojson.parents[2])

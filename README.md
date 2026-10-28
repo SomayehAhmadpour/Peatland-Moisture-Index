@@ -137,6 +137,13 @@ Europe, WGS 84 elsewhere), so a 100 m box stays 100 m. The run is written to `ou
 opens in the dashboard. It needs network access to Earth Search: six months took about 1 minute in testing,
 and several years can take 10 minutes or more. In code: [`adhoc.py`](src/iris_ndwi/adhoc.py).
 
+**Manage this run** (sidebar, under the run list):
+- **Re-run with new dates** repeats the selected run with the same parcels and settings, read from its
+  `manifest.json`. Only the dates change, and the result is a new run. Runs are never edited in place,
+  so every result stays traceable to its exact configuration.
+- **Delete this run** removes the run's folder from `output/`, after a confirmation. Example runs in
+  `examples/runs/` are part of the repository and can't be deleted from the dashboard.
+
 ### Changing the configuration
 
 Everything that is a choice rather than a fact lives in [`config/wurzacher_ried.yaml`](config/wurzacher_ried.yaml).
@@ -305,7 +312,7 @@ File outputs per run, under `output/<run_id>/`: `observations.csv`, `scenes.csv`
 
 ## Tests
 
-`uv run pytest` runs 98 offline tests in under a second. `docker compose run --rm tests` runs all 99, adding the PostGIS
+`uv run pytest` runs 100 offline tests in under a second. `docker compose run --rm tests` runs all 101, adding the PostGIS
 round trip, which checks SRID 25832, geometry validity and idempotent upserts and then deletes its own rows.
 Synthetic scene ids carry a `SYNTHETIC_` prefix, so test data can never overwrite real rows. The tests cover:
 
@@ -320,8 +327,8 @@ Synthetic scene ids carry a `SYNTHETIC_` prefix, so test data can never overwrit
   zero-area geometries are rejected; OSM multipolygon holes are preserved; duplicate IDs are rejected.
 - **End to end (synthetic scenes):** snow, fog missed by SCL, half cloud, tile-edge nodata, read error,
   wrong tile, cloud pre-filter, double offset, an empty period, and identical results on repeated runs.
-- **New analysis:** metric CRS per UTM zone, automatic tile choice from real STAC items, box size, and a
-  complete point run written to disk.
+- **New analysis and re-runs:** metric CRS per UTM zone, automatic tile choice from real STAC items, box
+  size, a complete point run written to disk, and a re-run that changes only the dates.
 
 ## Assumptions and limitations
 

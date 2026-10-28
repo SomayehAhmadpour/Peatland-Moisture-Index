@@ -133,7 +133,7 @@ detected at 10 m. The big bog polygon does show it in 91 of 112 accepted scenes,
 
 ## 7. Docker verification (Apple Silicon, Colima)
 
-`docker compose run --rm tests`: **99/99 passed**, including the PostGIS round trip. The full live run
+`docker compose run --rm tests`: **101/101 passed**, including the PostGIS round trip. The full live run
 inside Docker (`docker compose run --rm pipeline`) reproduced the example run exactly: 263 scenes,
 1 052 observations, 514 accepted. That was on a different platform (Linux arm64) and with a different
 library stack from the one used to create the example (rasterio 1.5.1 / GDAL 3.12.4 vs 1.4.3 / 3.9.3).
