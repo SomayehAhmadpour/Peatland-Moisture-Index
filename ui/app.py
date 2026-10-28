@@ -10,6 +10,7 @@ and writes a new run folder to output/ (network access to Earth Search needed).
 
 from __future__ import annotations
 
+import base64
 import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -33,6 +34,8 @@ RUN_ROOTS = [OUTPUT_DIR, ROOT / "examples" / "runs"]
 BASE_CONFIG = ROOT / "config" / "wurzacher_ried.yaml"  # quality settings reused by new analyses
 DEFAULT_POINT = (47.926242, 9.877493)  # Haidgauer Hochmoor open bog
 S2_FIRST_DATE = date(2017, 1, 1)  # Sentinel-2 L2A archive is sparse before this
+# Streamlit's own "running" animation (Apache-2.0), shown large over the form while a run is busy
+RUNNING_GIF = "data:image/gif;base64," + base64.b64encode((ROOT / "ui" / "assets" / "running.gif").read_bytes()).decode()
 
 PRIMARY, TEXT_MUTED, BORDER = "#2563EB", "#64748B", "#E5E7EB"
 PARCEL_COLOURS = {"bog-core": "#2563EB", "bog": "#16A34A", "reserve": "#94A3B8", "reference": "#DC2626", "point": "#7C3AED"}
@@ -136,6 +139,7 @@ def new_analysis_page() -> None:
     state = st.session_state
     state.setdefault("point", DEFAULT_POINT)
     lat, lon = state.point
+    busy = state.get("running", False)  # set by the Run button; cleared when the run ends
 
     st.markdown("## New analysis")
     st.caption(
@@ -145,6 +149,8 @@ def new_analysis_page() -> None:
     map_col, form_col = st.columns([7, 5], gap="medium")
 
     with form_col:
+        if message := state.pop("run_message", None):
+            (st.error if message[0] == "error" else st.warning)(message[1])
         name = st.text_input("Name", value="My box", max_chars=60)
         size_m = st.number_input("Box edge (m)", min_value=20, max_value=2000, value=100, step=10,
                                  help="Snapped to the 10 m Sentinel-2 pixel grid")  # fmt: skip
@@ -161,7 +167,20 @@ def new_analysis_page() -> None:
             f"Metric CRS: {metric_crs(lat, lon)}. Every acquisition in the period (one every 2–5 days) is read "
             "from the cloud, so a few months take about a minute and several years can take 10 minutes or more."
         )
-        run = st.button("Run analysis", type="primary", use_container_width=True)
+        st.button("Run analysis", type="primary", use_container_width=True, disabled=busy,
+                  on_click=lambda: state.update(running=True))  # fmt: skip
+        if busy:  # grey the form out and put the running animation over it
+            st.markdown(
+                f"""<div class="run-overlay"></div><style>
+                div[data-testid="stColumn"]:has(.run-overlay) {{ position: relative; align-self: flex-start; }}
+                div[data-testid="stColumn"]:has(.run-overlay)::after {{
+                    content: "Running analysis …"; position: absolute; inset: -8px; z-index: 1000;
+                    background: rgba(100, 116, 139, 0.6) url({RUNNING_GIF}) no-repeat center calc(50% - 24px) / 112px;
+                    border-radius: 12px; display: flex; align-items: center; justify-content: center;
+                    padding-top: 150px; color: #0F172A; font-weight: 600; cursor: wait; }}
+                </style>""",
+                unsafe_allow_html=True,
+            )
 
     with map_col:
         try:
@@ -175,7 +194,7 @@ def new_analysis_page() -> None:
             attr="Esri World Imagery", name="Satellite",
         ).add_to(fmap)  # fmt: skip
         if box is not None:
-            folium.GeoJson(mapping(box), style_function=lambda _: {"color": "#FFFFFF", "fillColor": "#FFFFFF", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
+            folium.GeoJson(mapping(box), name="Box", style_function=lambda _: {"color": "#FFFFFF", "fillColor": "#FFFFFF", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
         folium.Marker([lat, lon], tooltip=f"{lat:.6f}, {lon:.6f}").add_to(fmap)
         folium.LayerControl(collapsed=False).add_to(fmap)
         clicked = st_folium(fmap, height=480, use_container_width=True, returned_objects=["last_clicked"], key="picker")
@@ -186,24 +205,23 @@ def new_analysis_page() -> None:
             st.rerun()
         st.caption("Click to move the box. Switch to the satellite layer (top right) to see the ground.")
 
-    if not run:
+    if not busy:
         return
+    # A message is kept in session state because the rerun that re-enables the form clears the page.
+    state.running = False
     if not isinstance(period, tuple) or len(period) != 2:
-        st.error("Choose a start and an end date.")
-        return
+        state.run_message = ("error", "Choose a start and an end date.")
+        st.rerun()
     try:
         config = point_config(load_config(BASE_CONFIG), lat, lon, size_m, period[0], period[1], name.strip() or "My box")
-        with st.spinner(f"Searching and reading Sentinel-2 scenes {period[0]} → {period[1]} …"):
-            result, run_dir = run_point(config, OUTPUT_DIR)
+        result, run_dir = run_point(config, OUTPUT_DIR)
     except (GeometryError, ValueError, OSError, RuntimeError) as exc:
-        st.error(f"Run failed: {exc}")
-        return
+        state.run_message = ("error", f"Run failed: {exc}")
+        st.rerun()
     if not result.observations:
-        st.warning(
-            f"Run `{result.run_id}` finished, but no scene could be used "
-            f"({result.n_items_found} items found). Try a longer period or another point."
-        )
-        return
+        state.run_message = ("warning", f"Run `{result.run_id}` finished, but no scene could be used "
+                             f"({result.n_items_found} items found). Try a longer period or another point.")  # fmt: skip
+        st.rerun()
     state.run_dir = run_dir  # open the new run in the results view
     state.new_analysis = False
     st.rerun()
