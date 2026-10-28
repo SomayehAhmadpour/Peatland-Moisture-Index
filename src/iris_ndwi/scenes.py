@@ -127,9 +127,26 @@ def aoi_coverage(scene: Scene, aoi_wgs84: BaseGeometry | None) -> float:
     return round(scene.footprint.intersection(aoi_wgs84).area / aoi_wgs84.area, 4)
 
 
+def dominant_tile(items: list[dict], aoi_wgs84: BaseGeometry | None) -> str | None:
+    """MGRS tile that fully covers the AOI in the most items (ties: lowest code).
+
+    Neighbouring tiles overlap by ~10 km, so a point can lie in several; one
+    tile keeps the pixel grid and CRS identical through the time series.
+    """
+    counts: dict[str, int] = {}
+    for item in items:
+        try:
+            scene = parse_item(item)
+        except SceneMetadataError:
+            continue
+        if aoi_coverage(scene, aoi_wgs84) >= 0.999:
+            counts[scene.mgrs_tile] = counts.get(scene.mgrs_tile, 0) + 1
+    return min(counts, key=lambda tile: (-counts[tile], tile)) if counts else None
+
+
 def select_scenes(
     items: list[dict],
-    mgrs_tile: str,
+    mgrs_tile: str | None,
     max_scene_cloud_pct: float,
     aoi_wgs84: BaseGeometry | None = None,
     collections: list[str] | None = None,

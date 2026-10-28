@@ -120,13 +120,22 @@ the connection string is read from `IRIS_STAGING_DATABASE_URL` (see `.env.exampl
 uv run --group ui streamlit run ui/app.py          # → http://localhost:8501, Ctrl+C to stop
 ```
 
-This is a read-only Streamlit page in the style of the IRIS dashboard. It lists every run under `output/` and
-`examples/runs/`, so it works without a database or network. Pick a run, a parcel, a period, months
+This is a Streamlit page in the style of the IRIS dashboard. It lists every run under `output/` and
+`examples/runs/`; viewing them needs no database or network. Pick a run, a parcel, a period, months
 and a scene to see:
 KPIs; a map of parcel medians for the chosen scene; the parcel's NDWI time series, with the p25–p75
 range and rejected dates marked; a **rule-based interpretation** ([`interpret.py`](src/iris_ndwi/interpret.py):
 fixed templates, deterministic, no LLM); a same-season comparison by year; and the scene quality ledger.
 A badge flags synthetic data whenever it is shown.
+
+**＋ New analysis** (top of the sidebar) runs the pipeline for any place and period without editing a config
+file. Click a point on the map (OpenStreetMap or satellite layer), set the box edge (20–2000 m) and any period
+from 2017 on, then press **Run analysis**. The box gets every quality setting from
+`config/wurzacher_ried.yaml`. The MGRS tile is picked automatically (the tile covering the box in the most
+items), and the metric CRS is EPSG:25832 inside UTM zone 32, otherwise the point's own UTM zone (ETRS89 in
+Europe, WGS 84 elsewhere), so a 100 m box stays 100 m. The run is written to `output/` like a CLI run and
+opens in the dashboard. It needs network access to Earth Search: six months took about 1 minute in testing,
+and several years can take 10 minutes or more. In code: [`adhoc.py`](src/iris_ndwi/adhoc.py).
 
 ### Changing the configuration
 
@@ -138,7 +147,7 @@ Copy the file to experiment (`cp config/wurzacher_ried.yaml config/my_test.yaml`
 |---|---|---|
 | `start_date`, `end_date` | 2021-01-01, 2026-10-26 | Acquisition period (UTC) |
 | `collections` | `[sentinel-2-c1-l2a, sentinel-2-l2a]` | STAC collections in priority order |
-| `mgrs_tile` | `32UNU` | Sentinel-2 tile; items from other tiles are rejected |
+| `mgrs_tile` | `32UNU` | Sentinel-2 tile; items from other tiles are rejected. Omit it to use the tile covering the parcels in the most items |
 | `max_scene_cloud_pct` | 80 | Item-level cloud pre-filter |
 | `min_valid_fraction` | 0.8 | A parcel observation is accepted when ≥ this share of its pixels is valid |
 | `valid_scl_classes` | `[4, 5, 6]` | SCL classes counted as clear (vegetation, not-vegetated, water) |
@@ -163,8 +172,8 @@ Copy the file to experiment (`cp config/wurzacher_ried.yaml config/my_test.yaml`
     snap_m: 10
 ```
 
-**Another study area:** set `study_area`, the boxes and/or `parcels_geojson`, and the `mgrs_tile` that
-contains them. The tile code is in the STAC item properties (`grid:code`), or you can run once: every
+**Another study area:** for one box, use **＋ New analysis** in the dashboard. Otherwise set `study_area`,
+the boxes and/or `parcels_geojson`, and the `mgrs_tile` that contains them (or omit `mgrs_tile`). The tile code is in the STAC item properties (`grid:code`), or you can run once: every
 item from another tile is listed in `scenes.csv` as `other_mgrs_tile`. Parcels must stay inside one tile
 in UTM zone 32 for EPSG:25832 to remain the appropriate metric CRS.
 `scripts/fetch_osm_parcels.py` shows how to turn OSM features into a parcel file.
@@ -296,7 +305,7 @@ File outputs per run, under `output/<run_id>/`: `observations.csv`, `scenes.csv`
 
 ## Tests
 
-`uv run pytest` runs 90 offline tests in under a second. `docker compose run --rm tests` runs all 91, adding the PostGIS
+`uv run pytest` runs 98 offline tests in under a second. `docker compose run --rm tests` runs all 99, adding the PostGIS
 round trip, which checks SRID 25832, geometry validity and idempotent upserts and then deletes its own rows.
 Synthetic scene ids carry a `SYNTHETIC_` prefix, so test data can never overwrite real rows. The tests cover:
 
@@ -311,6 +320,8 @@ Synthetic scene ids carry a `SYNTHETIC_` prefix, so test data can never overwrit
   zero-area geometries are rejected; OSM multipolygon holes are preserved; duplicate IDs are rejected.
 - **End to end (synthetic scenes):** snow, fog missed by SCL, half cloud, tile-edge nodata, read error,
   wrong tile, cloud pre-filter, double offset, an empty period, and identical results on repeated runs.
+- **New analysis:** metric CRS per UTM zone, automatic tile choice from real STAC items, box size, and a
+  complete point run written to disk.
 
 ## Assumptions and limitations
 
@@ -338,7 +349,7 @@ Synthetic scene ids carry a `SYNTHETIC_` prefix, so test data can never overwrit
 ## Repository layout
 
 ```
-src/iris_ndwi/   config · parcels · scenes · sources (STAC/COG) · ndwi · zonal · pipeline · outputs · staging · report · interpret · synthetic · cli
+src/iris_ndwi/   config · parcels · scenes · sources (STAC/COG) · ndwi · zonal · pipeline · outputs · staging · report · interpret · synthetic · adhoc · cli
 ui/              Streamlit dashboard (optional `ui` dependency group)
 alembic/         iris_staging migration
 config/          example configuration (no secrets)

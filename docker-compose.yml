@@ -58,7 +58,7 @@ services:
     ports:
       - "127.0.0.1:8501:8501"
     volumes:
-      - ./output:/app/output:ro   # runs you made with the pipeline service; examples/ ships in the image
+      - ./output:/app/output   # pipeline runs, and new analyses started from the dashboard
 
   tests:
     build: .

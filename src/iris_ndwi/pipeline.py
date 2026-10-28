@@ -14,7 +14,7 @@ from shapely.ops import unary_union
 from iris_ndwi.config import PipelineConfig
 from iris_ndwi.ndwi import METHOD_VERSION, below_offset_fraction, classify_pixels
 from iris_ndwi.parcels import Parcel, reproject
-from iris_ndwi.scenes import Scene, SceneRejection, select_scenes
+from iris_ndwi.scenes import Scene, SceneRejection, dominant_tile, select_scenes
 from iris_ndwi.sources import SceneSource, SourceError
 from iris_ndwi.zonal import ParcelObservation, parcel_pixel_mask, summarize
 
@@ -94,6 +94,13 @@ def process_scene(source: SceneSource, scene: Scene, parcels: list[Parcel], conf
 
 def run_pipeline(config: PipelineConfig, source: SceneSource, parcels: list[Parcel]) -> RunResult:
     started_at = datetime.now(timezone.utc)
+    aoi_wgs84 = reproject(unary_union([p.geometry for p in parcels]), config.target_crs, "EPSG:4326").envelope
+    items = source.search(aoi_wgs84, config.start_date.isoformat(), config.end_date.isoformat())
+    if config.mgrs_tile is None:
+        tile = dominant_tile(items, aoi_wgs84)
+        log.info("mgrs_tile not configured, using %s", tile)
+        config = config.model_copy(update={"mgrs_tile": tile})  # recorded in the manifest
+
     digest = config_digest(config)
     result = RunResult(
         run_id=f"{started_at:%Y%m%dT%H%M%SZ}-{digest[:8]}",
@@ -103,11 +110,8 @@ def run_pipeline(config: PipelineConfig, source: SceneSource, parcels: list[Parc
         config_sha256=digest,
         source_name=source.name,
         parcels=parcels,
+        n_items_found=len(items),
     )
-
-    aoi_wgs84 = reproject(unary_union([p.geometry for p in parcels]), config.target_crs, "EPSG:4326").envelope
-    items = source.search(aoi_wgs84, config.start_date.isoformat(), config.end_date.isoformat())
-    result.n_items_found = len(items)
     selected, rejected = select_scenes(
         items, config.mgrs_tile, config.max_scene_cloud_pct, aoi_wgs84, config.collections
     )

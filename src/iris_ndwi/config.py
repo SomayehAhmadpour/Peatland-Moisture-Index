@@ -43,7 +43,8 @@ class PipelineConfig(BaseModel):
     stac_url: str = "https://earth-search.aws.element84.com/v1"
     # Priority order: the first collection wins when an acquisition exists in several.
     collections: list[str] = Field(default=["sentinel-2-c1-l2a", "sentinel-2-l2a"], min_length=1)
-    mgrs_tile: str = Field(pattern=r"^\d{2}[A-Z]{3}$")
+    # None = use the tile that covers the parcels most often (see scenes.dominant_tile)
+    mgrs_tile: str | None = Field(default=None, pattern=r"^\d{2}[A-Z]{3}$")
     start_date: date
     end_date: date
     target_crs: str = "EPSG:25832"

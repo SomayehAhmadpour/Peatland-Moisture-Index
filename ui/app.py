@@ -1,31 +1,41 @@
-"""IRIS NDWI dashboard — read-only view of a pipeline run.
+"""IRIS NDWI dashboard — view of a pipeline run, plus ad-hoc runs for any point.
 
     uv run --group ui streamlit run ui/app.py
 
 Reads a run folder written by `iris-ndwi run` (observations.csv, scenes.csv,
-parcels.geojson, manifest.json); no database or network access is needed.
+parcels.geojson, manifest.json); viewing needs no database or network access.
+"New analysis" runs the same pipeline live for a box around a clicked point
+and writes a new run folder to output/ (network access to Earth Search needed).
 """
 
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+import folium
 import pandas as pd
 import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
 from shapely.geometry import mapping, shape
+from streamlit_folium import st_folium
 
+from iris_ndwi.adhoc import metric_crs, point_config, run_point
+from iris_ndwi.config import load_config
 from iris_ndwi.interpret import Obs, interpret
-from iris_ndwi.parcels import reproject
+from iris_ndwi.parcels import GeometryError, reproject, square_box
 
 ROOT = Path(__file__).resolve().parent.parent
-RUN_ROOTS = [ROOT / "output", ROOT / "examples" / "runs"]
+OUTPUT_DIR = ROOT / "output"
+RUN_ROOTS = [OUTPUT_DIR, ROOT / "examples" / "runs"]
+BASE_CONFIG = ROOT / "config" / "wurzacher_ried.yaml"  # quality settings reused by new analyses
+DEFAULT_POINT = (47.926242, 9.877493)  # Haidgauer Hochmoor open bog
+S2_FIRST_DATE = date(2017, 1, 1)  # Sentinel-2 L2A archive is sparse before this
 
 PRIMARY, TEXT_MUTED, BORDER = "#2563EB", "#64748B", "#E5E7EB"
-PARCEL_COLOURS = {"bog-core": "#2563EB", "bog": "#16A34A", "reserve": "#94A3B8", "reference": "#DC2626"}
+PARCEL_COLOURS = {"bog-core": "#2563EB", "bog": "#16A34A", "reserve": "#94A3B8", "reference": "#DC2626", "point": "#7C3AED"}
 NDWI_RANGE = (-0.80, -0.45)  # colour scale for the map; values outside are clipped
 
 st.set_page_config(page_title="IRIS · Peatland NDWI", page_icon="🛰️", layout="wide")
@@ -59,6 +69,14 @@ st.markdown(
 def find_runs() -> list[Path]:
     runs = [p for root in RUN_ROOTS if root.exists() for p in root.iterdir() if (p / "manifest.json").exists()]
     return sorted(runs, key=lambda p: p.name, reverse=True)
+
+
+@st.cache_data(show_spinner=False)
+def run_label(run_dir: str) -> str:
+    run = Path(run_dir)
+    area = json.loads((run / "manifest.json").read_text())["config"]["study_area"]
+    example = " (example)" if run.parent.name == "examples" or run.parent.parent.name == "examples" else ""
+    return f"{run.name[:8]}-{run.name[9:13]} · {area}{example}"
 
 
 @st.cache_data(show_spinner=False)
@@ -109,22 +127,121 @@ def ndwi_colour(value: float | None) -> list[int]:
 
 
 # ---------------------------------------------------------------------------
+# New analysis: any point, any dates
+# ---------------------------------------------------------------------------
+
+
+def new_analysis_page() -> None:
+    state = st.session_state
+    state.setdefault("point", DEFAULT_POINT)
+    lat, lon = state.point
+
+    st.markdown("## New analysis")
+    st.caption(
+        "Click the map to place a square box anywhere, choose any period, and run the same pipeline "
+        "(same masks and quality rules as the tested runs) on live Sentinel-2 L2A data from Earth Search."
+    )
+    map_col, form_col = st.columns([7, 5], gap="medium")
+
+    with form_col:
+        name = st.text_input("Name", value="My box", max_chars=60)
+        size_m = st.number_input("Box edge (m)", min_value=20, max_value=2000, value=100, step=10,
+                                 help="Snapped to the 10 m Sentinel-2 pixel grid")  # fmt: skip
+        c1, c2 = st.columns(2)
+        lat = c1.number_input("Latitude", min_value=-56.0, max_value=84.0, value=float(lat), format="%.6f")
+        lon = c2.number_input("Longitude", min_value=-180.0, max_value=180.0, value=float(lon), format="%.6f")
+        state.point = (lat, lon)
+        today = datetime.now(timezone.utc).date()
+        period = st.date_input(
+            "Period", value=(today - timedelta(days=180), today),
+            min_value=S2_FIRST_DATE, max_value=today, format="YYYY-MM-DD",
+        )  # fmt: skip
+        st.caption(
+            f"Metric CRS: {metric_crs(lat, lon)}. Every acquisition in the period (one every 2–5 days) is read "
+            "from the cloud, so a few months take about a minute and several years can take 10 minutes or more."
+        )
+        run = st.button("Run analysis", type="primary", use_container_width=True)
+
+    with map_col:
+        try:
+            box = reproject(square_box(lat, lon, size_m, 10, metric_crs(lat, lon)), metric_crs(lat, lon), "EPSG:4326")
+        except Exception:  # noqa: BLE001 - preview only
+            box = None
+        fmap = folium.Map(location=[lat, lon], zoom_start=15, tiles=None, control_scale=True)
+        folium.TileLayer("OpenStreetMap", name="Map").add_to(fmap)
+        folium.TileLayer(
+            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+            attr="Esri World Imagery", name="Satellite",
+        ).add_to(fmap)  # fmt: skip
+        if box is not None:
+            folium.GeoJson(mapping(box), style_function=lambda _: {"color": "#7C3AED", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
+        folium.Marker([lat, lon], tooltip=f"{lat:.6f}, {lon:.6f}").add_to(fmap)
+        folium.LayerControl(collapsed=False).add_to(fmap)
+        clicked = st_folium(fmap, height=480, use_container_width=True, returned_objects=["last_clicked"], key="picker")
+        click = (clicked or {}).get("last_clicked")
+        if click and click != state.get("last_click"):
+            state.last_click = click
+            state.point = (round(click["lat"], 6), round(click["lng"], 6))
+            st.rerun()
+        st.caption("Click to move the box. Switch to the satellite layer (top right) to see the ground.")
+
+    if not run:
+        return
+    if not isinstance(period, tuple) or len(period) != 2:
+        st.error("Choose a start and an end date.")
+        return
+    try:
+        config = point_config(load_config(BASE_CONFIG), lat, lon, size_m, period[0], period[1], name.strip() or "My box")
+        with st.spinner(f"Searching and reading Sentinel-2 scenes {period[0]} → {period[1]} …"):
+            result, run_dir = run_point(config, OUTPUT_DIR)
+    except (GeometryError, ValueError, OSError, RuntimeError) as exc:
+        st.error(f"Run failed: {exc}")
+        return
+    if not result.observations:
+        st.warning(
+            f"Run `{result.run_id}` finished, but no scene could be used "
+            f"({result.n_items_found} items found). Try a longer period or another point."
+        )
+        return
+    state.run_dir = run_dir  # open the new run in the results view
+    state.new_analysis = False
+    st.rerun()
+
+
+# ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
 
+if "new_analysis" not in st.session_state:
+    st.session_state.new_analysis = False
 runs = find_runs()
-if not runs:
-    st.error("No pipeline run found. Run `iris-ndwi run --config config/wurzacher_ried.yaml` first.")
-    st.stop()
 
 with st.sidebar:
     st.markdown("### 🛰️ IRIS · Peatland NDWI")
-    run_dir = st.selectbox("Run", runs, format_func=lambda p: f"{p.parent.name}/{p.name}")
+    if st.session_state.new_analysis:
+        if runs and st.button("← Back to results", use_container_width=True):
+            st.session_state.new_analysis = False
+            st.rerun()
+    elif st.button("＋ New analysis", use_container_width=True, help="Any point on the map, any dates"):
+        st.session_state.new_analysis = True
+        st.rerun()
+
+if st.session_state.new_analysis or not runs:
+    new_analysis_page()
+    st.stop()
+
+with st.sidebar:
+    if st.session_state.get("run_dir") not in runs:
+        st.session_state.run_dir = runs[0]
+    run_dir = st.selectbox("Run", runs, key="run_dir", format_func=lambda p: run_label(str(p)))
     data = load_run(str(run_dir))
     obs_all, scenes, manifest, parcels = data["obs"], data["scenes"], data["manifest"], data["parcels"]
+    if obs_all.empty:
+        st.warning("This run has no observations.")
+        st.stop()
     parcel_by_id = {p["parcel_id"]: p for p in parcels}
 
-    parcel_ids = sorted(parcel_by_id, key=lambda i: ["bog-core", "bog", "reserve", "reference"].index(parcel_by_id[i]["kind"]) if parcel_by_id[i]["kind"] in PARCEL_COLOURS else 9)
+    parcel_ids = sorted(parcel_by_id, key=lambda i: list(PARCEL_COLOURS).index(parcel_by_id[i]["kind"]) if parcel_by_id[i]["kind"] in PARCEL_COLOURS else 9)
     parcel_id = st.selectbox("Parcel", parcel_ids, format_func=lambda i: parcel_by_id[i]["name"])
 
     first, last = obs_all["acquired_at"].min().date(), obs_all["acquired_at"].max().date()
