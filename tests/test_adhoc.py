@@ -6,7 +6,8 @@ from datetime import date
 import pytest
 from shapely.geometry import Point
 
-from iris_ndwi.adhoc import is_single_box, metric_crs, point_config, rerun_config, run_and_write
+from iris_ndwi.adhoc import box_parcel_id, is_single_box, metric_crs, point_config, rerun_config, run_and_write
+from iris_ndwi.config import BoxParcel
 from iris_ndwi.parcels import load_parcels
 from iris_ndwi.scenes import dominant_tile
 from iris_ndwi.synthetic import SyntheticSource
@@ -34,6 +35,13 @@ def test_point_config_keeps_quality_settings(config):
     assert parcel.area_m2 == pytest.approx(200 * 200)
 
 
+def test_box_parcel_id_is_valid_and_unique():
+    ids = {box_parcel_id(-33.87, -70.6, 100), box_parcel_id(33.87, 70.6, 100), box_parcel_id(33.87, 70.6, 150.5)}
+    assert ids == {"point-33p87000s-70p60000w-100m", "point-33p87000n-70p60000e-100m", "point-33p87000n-70p60000e-150p5m"}
+    for parcel_id in ids:
+        BoxParcel(parcel_id=parcel_id, name="x", kind="point", center_lat=0, center_lon=0, size_m=100)
+
+
 def test_point_config_rejects_bad_dates(config):
     with pytest.raises(ValueError, match="end_date is before start_date"):
         point_config(config, 47.9, 9.9, 100, date(2024, 5, 1), date(2024, 4, 1), "x")
@@ -48,7 +56,7 @@ def test_run_point_resolves_tile_and_writes_run(config, tmp_path):
     cfg = point_config(config, 47.926242, 9.877493, 100, date(2021, 1, 1), date(2026, 1, 1), "Bog test")
     result, run_dir = run_and_write(cfg, tmp_path, SyntheticSource())
     assert result.config.mgrs_tile == "32UNU"
-    assert {o.parcel_id for o in result.observations} == {"point-box"}
+    assert {o.parcel_id for o in result.observations} == {"point-47p92624n-9p87749e-100m"}
     assert any(o.status == "accepted" for o in result.observations)
     manifest = json.loads((run_dir / "manifest.json").read_text())
     assert manifest["config"]["mgrs_tile"] == "32UNU"
@@ -80,6 +88,7 @@ def test_rerun_config_resizes_a_single_box(config):
     cfg = rerun_config(manifest_config, date(2024, 5, 1), date(2024, 8, 31), config.parcels_geojson.parents[2], size_m=300)
     (before,), (after,) = load_parcels(point), load_parcels(cfg)
     assert after.area_m2 == pytest.approx(300 * 300)
+    assert (before.parcel_id, after.parcel_id) == ("point-47p92624n-9p87749e-100m", "point-47p92624n-9p87749e-300m")
     assert after.geometry.centroid.distance(before.geometry.centroid) <= 10  # same centre, within grid snapping
 
 

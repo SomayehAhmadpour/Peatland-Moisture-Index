@@ -1,12 +1,23 @@
 """iris_staging writer. Unit checks run always; the PostGIS round trip needs
 IRIS_TEST_DATABASE_URL (provided by `docker compose run --rm tests`)."""
 
+import json
 import os
+import shutil
+import uuid
+from datetime import date, datetime
 
 import pytest
+from geoalchemy2.shape import to_shape
+from pyproj import Transformer
 from sqlalchemy import create_engine, text
 
-from iris_ndwi.staging import STAGING_SCHEMA, StagingGuardError, engine_from_env, metadata, write_run
+from iris_ndwi.adhoc import point_config, run_and_write
+from iris_ndwi.staging import (
+    STAGING_SCHEMA, StagingGuardError, check_schema_name, engine_for, engine_from_env, export_run_dir, metadata,
+    run_dir_rows, target_schema, write_run,
+)  # fmt: skip
+from iris_ndwi.synthetic import SyntheticSource
 
 
 def test_all_tables_live_in_staging_schema():
@@ -19,6 +30,85 @@ def test_missing_database_url_is_an_error(monkeypatch):
     monkeypatch.delenv("IRIS_STAGING_DATABASE_URL", raising=False)
     with pytest.raises(StagingGuardError, match="IRIS_STAGING_DATABASE_URL"):
         engine_from_env()
+
+
+@pytest.mark.parametrize("schema", ["iris_core", "public", "pg_catalog", "information_schema", "Bad-Name", "x; drop"])
+def test_protected_or_invalid_schemas_are_refused(schema):
+    with pytest.raises(StagingGuardError):
+        check_schema_name(schema)
+
+
+def test_engine_for_targets_the_chosen_schema():
+    engine = engine_for("postgresql://u:secret@db.example:5432/gis", "my_ndwi")
+    assert engine.url.drivername == "postgresql+psycopg"  # psycopg 3, the driver that is installed
+    assert target_schema(engine) == "my_ndwi"
+    assert target_schema(create_engine("postgresql+psycopg://u@h/d")) == STAGING_SCHEMA
+
+
+def test_run_dir_rows_are_typed(config, tmp_path):
+    result, run_dir = run_and_write(config.model_copy(update={"start_date": date(2025, 5, 1)}), tmp_path, SyntheticSource())
+    run, parcels, scenes, observations = run_dir_rows(run_dir)
+    assert run["run_id"] == result.run_id and isinstance(run["started_at"], datetime)
+    assert len(parcels) == len(result.parcels) and len(observations) == len(result.observations)
+    assert len(scenes) == len(result.scenes) + len(result.scene_rejections)
+    row = observations[0]
+    assert isinstance(row["n_pixels"], int) and isinstance(row["valid_fraction"], float)
+    assert isinstance(row["acquired_at"], datetime) and row["run_id"] == result.run_id
+    assert all(isinstance(r["selected"], bool) for r in scenes)
+    assert any(r["ndwi_median"] is None for r in observations)  # rejected: empty cell -> NULL
+
+
+def test_run_dir_rows_reproject_other_utm_zones_to_25832(config, tmp_path):
+    result, run_dir = run_and_write(
+        point_config(config, 47.926242, 9.877493, 100, date(2021, 1, 1), date(2026, 1, 1), "Box"), tmp_path, SyntheticSource()
+    )
+    # the same box as if the run had used the neighbouring zone (EPSG:25833)
+    to_33 = Transformer.from_crs("EPSG:25832", "EPSG:25833", always_xy=True)
+    collection = json.loads((run_dir / "parcels.geojson").read_text())
+    ring = collection["features"][0]["geometry"]["coordinates"][0][0]
+    collection["features"][0]["geometry"]["coordinates"][0][0] = [list(to_33.transform(x, y)) for x, y in ring]
+    collection["crs"]["properties"]["name"] = "urn:ogc:def:crs:EPSG::25833"
+    (run_dir / "parcels.geojson").write_text(json.dumps(collection))
+    (row,) = run_dir_rows(run_dir)[1]
+    assert to_shape(row["geometry"]).hausdorff_distance(result.parcels[0].geometry) < 0.01
+
+
+@pytest.mark.integration
+def test_export_run_dir_creates_tables_in_its_own_schema(config, tmp_path):
+    url = os.environ.get("IRIS_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("IRIS_TEST_DATABASE_URL not set")
+    schema = f"iris_export_test_{uuid.uuid4().hex[:8]}"
+    _, run_dir = run_and_write(
+        point_config(config, 47.926242, 9.877493, 100, date(2021, 1, 1), date(2026, 1, 1), "Box"), tmp_path, SyntheticSource()
+    )
+    engine = engine_for(url, schema)
+    try:
+        with pytest.raises(StagingGuardError, match="does not exist"):
+            export_run_dir(run_dir, engine)  # nothing is created unless asked
+        first = export_run_dir(run_dir, engine, create_tables=True)
+        assert export_run_dir(run_dir, engine) == first  # idempotent
+        with engine.connect() as connection:
+            n = connection.execute(text(f"SELECT count(*) FROM {schema}.s2_ndwi_observation")).scalar()
+            srid, valid = connection.execute(
+                text(f"SELECT ST_SRID(geometry), ST_IsValid(geometry) FROM {schema}.s2_ndwi_parcel")
+            ).one()
+            staging = connection.execute(  # nothing leaked into the staging schema
+                text(f"SELECT count(*) FROM information_schema.tables WHERE table_schema = '{schema}'")
+            ).scalar()
+        assert n == first["observations"] > 0 and (srid, valid) == (25832, True) and staging == 4
+
+        moved = tmp_path / "moved"
+        shutil.copytree(run_dir, moved)
+        collection = json.loads((moved / "parcels.geojson").read_text())
+        ring = collection["features"][0]["geometry"]["coordinates"][0][0]
+        collection["features"][0]["geometry"]["coordinates"][0][0] = [[x + 50, y] for x, y in ring]
+        (moved / "parcels.geojson").write_text(json.dumps(collection))
+        with pytest.raises(StagingGuardError, match="different geometry"):
+            export_run_dir(moved, engine)
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text(f"DROP SCHEMA IF EXISTS {schema} CASCADE"))
 
 
 @pytest.mark.integration

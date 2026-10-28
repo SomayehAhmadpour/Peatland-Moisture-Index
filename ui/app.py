@@ -11,6 +11,7 @@ and writes a new run folder to output/ (network access to Earth Search needed).
 from __future__ import annotations
 
 import json
+import os
 import shutil
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -21,12 +22,14 @@ import plotly.graph_objects as go
 import pydeck as pdk
 import streamlit as st
 from shapely.geometry import mapping, shape
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from streamlit_folium import st_folium
 
 from iris_ndwi.adhoc import is_single_box, metric_crs, point_config, rerun_config, run_and_write
 from iris_ndwi.config import load_config
 from iris_ndwi.interpret import Obs, interpret
 from iris_ndwi.parcels import GeometryError, reproject, square_box
+from iris_ndwi.staging import DATABASE_URL_ENV, STAGING_SCHEMA, StagingGuardError, engine_for, export_run_dir
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = ROOT / "output"
@@ -50,7 +53,7 @@ st.markdown(
           border-color: rgba(255,255,255,0.12) !important; }}
       [data-testid="stSidebar"] div[data-baseweb="select"] * {{ color: #F8FAFC !important; }}
       [data-testid="stSidebar"] button * {{ color: #000000 !important; }}
-      [data-testid="stSidebar"] :is([data-testid="stDateInput"], [data-testid="stNumberInput"]) input {{
+      [data-testid="stSidebar"] :is([data-testid="stDateInput"], [data-testid="stNumberInput"], [data-testid="stTextInput"]) input {{
           color: #000000 !important; -webkit-text-fill-color: #000000; }}
       [data-testid="stSidebar"] span[data-baseweb="tag"] {{ background-color: {PRIMARY} !important; }}
       div[data-testid="stMetricValue"] > div {{ font-size: 1.55rem; }}
@@ -321,6 +324,43 @@ def manage_run(run_dir: Path, manifest: dict) -> None:
     st.rerun()
 
 
+def export_panel(run_dir: Path) -> None:
+    """Upsert the selected run into a PostGIS database; the URL is only kept in this browser session."""
+    state = st.session_state
+    with st.expander("Export to PostGIS", expanded="export_message" in state):
+        if message := state.pop("export_message", None):
+            getattr(st, message[0])(message[1])
+        with st.form("export_form", border=False):
+            url = st.text_input(
+                "Database URL", type="password", placeholder="postgresql://user:password@host:5432/database",
+                help=f"Leave empty to use ${DATABASE_URL_ENV}. Not saved to disk.",
+            )  # fmt: skip
+            schema = st.text_input("Schema", value=STAGING_SCHEMA, help="iris_core and public are refused")
+            create = st.checkbox("Create PostGIS, the schema and the tables if missing", value=True)
+            submitted = st.form_submit_button("Export this run", use_container_width=True)
+        st.caption("Upserts run, parcels (EPSG:25832), scenes and observations; exporting again updates the same rows.")
+    if not submitted:
+        return
+    url = url.strip() or os.environ.get(DATABASE_URL_ENV, "")
+    if not url:
+        state.export_message = ("error", f"Enter a database URL (or set {DATABASE_URL_ENV}).")
+        st.rerun()
+    try:
+        engine = engine_for(url, schema.strip())
+        with st.spinner("Exporting …"):
+            counts = export_run_dir(run_dir, engine, create_tables=create)
+    except ArgumentError:  # its message would repeat the URL, password included
+        state.export_message = ("error", "That is not a database URL, e.g. postgresql://user:password@host:5432/database")
+    except (StagingGuardError, SQLAlchemyError, ValueError) as exc:
+        detail = getattr(exc, "orig", None) or exc
+        state.export_message = ("error", f"Export failed: {str(detail).strip().splitlines()[0]}")
+    else:
+        target = f"{engine.url.host or 'localhost'}/{engine.url.database} · {schema.strip()}"
+        state.export_message = ("success", f"Exported to {target}: {counts['parcels']} parcels, {counts['scenes']} scenes, "
+                                           f"{counts['observations']} observations.")  # fmt: skip
+    st.rerun()
+
+
 # ---------------------------------------------------------------------------
 # Sidebar
 # ---------------------------------------------------------------------------
@@ -352,6 +392,7 @@ with st.sidebar:
     data = load_run(str(run_dir))
     obs_all, scenes, manifest, parcels = data["obs"], data["scenes"], data["manifest"], data["parcels"]
     manage_run(run_dir, manifest)
+    export_panel(run_dir)
     if obs_all.empty:
         st.warning("This run has no observations.")
         st.stop()

@@ -55,6 +55,8 @@ services:
     image: iris-ndwi:local   # one image shared by all services
     entrypoint: ["streamlit", "run", "ui/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
     command: []
+    environment:   # default target of "Export to PostGIS" when its URL field is left empty
+      IRIS_STAGING_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
     ports:
       - "127.0.0.1:8501:8501"
     volumes:

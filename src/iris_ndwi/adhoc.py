@@ -35,6 +35,13 @@ def metric_crs(lat: float, lon: float) -> str:
     return f"EPSG:{(32600 if lat >= 0 else 32700) + zone}"
 
 
+def box_parcel_id(lat: float, lon: float, size_m: float) -> str:
+    """Unique per location and size, so boxes of different runs never share a parcel_id in PostGIS."""
+    ns, ew = "n" if lat >= 0 else "s", "e" if lon >= 0 else "w"
+    text = f"point-{abs(lat):.5f}{ns}-{abs(lon):.5f}{ew}-{size_m:g}m"  # e.g. point-47p92624n-9p87749e-100m
+    return text.replace(".", "p")
+
+
 def point_config(
     base: PipelineConfig,
     lat: float,
@@ -45,7 +52,7 @@ def point_config(
     name: str,
 ) -> PipelineConfig:
     box = BoxParcel(
-        parcel_id="point-box",
+        parcel_id=box_parcel_id(lat, lon, size_m),
         name=name,
         kind="point",
         center_lat=lat,
@@ -82,7 +89,10 @@ def rerun_config(
     if size_m is not None:
         if not is_single_box(manifest_config):
             raise ValueError("the box size can only be changed for a run with exactly one box")
-        updates["boxes"] = [{**manifest_config["boxes"][0], "size_m": size_m}]
+        box = {**manifest_config["boxes"][0], "size_m": size_m}
+        if box.get("kind") == "point":  # a new size is a new parcel
+            box["parcel_id"] = box_parcel_id(box["center_lat"], box["center_lon"], size_m)
+        updates["boxes"] = [box]
     config = PipelineConfig.model_validate({**manifest_config, **updates})
     if config.parcels_geojson and not config.parcels_geojson.is_absolute():
         config = config.model_copy(update={"parcels_geojson": root / config.parcels_geojson})

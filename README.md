@@ -26,7 +26,7 @@ flowchart TD
     ACQ["<b>1. Acquisition</b><br/>search both collections, drop other tiles<br/>de-duplicate acquisitions, cloud pre-filter<br/><i>sources.py, scenes.py</i>"]
     PRO["<b>2. Processing</b><br/>read B02, B03, B08, SCL windows<br/>BOA-offset harmonisation + guard<br/>SCL + fog masks → NDWI per pixel<br/><i>sources.py, ndwi.py</i>"]
     ANA["<b>3. Analytics</b><br/>pixels per parcel, status counts<br/>median, p25–p75, valid fraction<br/>accept / reject per parcel × scene<br/><i>parcels.py, zonal.py, pipeline.py</i>"]
-    STO["<b>4. Storage</b><br/>CSV, GeoJSON (EPSG:25832), manifest<br/>PostGIS iris_staging (upserts)<br/><i>outputs.py, staging.py, alembic/</i>"]
+    STO["<b>4. Storage</b><br/>CSV, GeoJSON (EPSG:25832), manifest<br/>PostGIS iris_staging (upserts)<br/>export to your own PostGIS<br/><i>outputs.py, staging.py, alembic/</i>"]
     SRV["<b>5. Results & queries</b><br/>quality summary, validation SQL<br/>rule-based interpretation<br/><i>report.py, validation_queries.sql, interpret.py</i>"]
     UI["<b>6. Streamlit dashboard</b><br/>KPIs, map, time series, scene ledger<br/><i>ui/app.py</i>"]
     FUTAI["<b>Future work: AI assistant</b><br/>chatbox for interpretation"]
@@ -106,6 +106,18 @@ uv run iris-ndwi run --config config/wurzacher_ried.yaml --source synthetic     
 other than `output/`. For progress logging use `uv run iris-ndwi -v run …` (`-v` goes before `run`). Add `--to-db` to also upsert into `iris_staging`:
 the connection string is read from `IRIS_STAGING_DATABASE_URL` (see `.env.example`), and nothing secret is stored in the repository.
 
+**Export a finished run to your own PostGIS database.** Any run folder (yours or an example) can be upserted later,
+into `iris_staging` or a schema of your choice:
+
+```bash
+export IRIS_STAGING_DATABASE_URL=postgresql://user:password@host:5432/database
+uv run iris-ndwi export output/<run_id> --schema my_ndwi --create-tables
+```
+
+`--create-tables` creates the PostGIS extension, the schema and the four tables (identical to the Alembic
+migration) if they are missing; without it the export stops when the schema does not exist. `iris_core`,
+`public` and the system schemas are refused. The dashboard has the same export (see below).
+
 **What a run writes.** Every run creates `output/<run_id>/`, named by UTC timestamp plus config hash:
 
 | File | Content |
@@ -146,6 +158,13 @@ and several years can take 10 minutes or more. In code: [`adhoc.py`](src/iris_nd
   edited in place, so every result stays traceable to its exact configuration.
 - **Delete this run** removes the run's folder from `output/`, after a confirmation. Example runs in
   `examples/runs/` are part of the repository and can't be deleted from the dashboard.
+
+**Export to PostGIS** (sidebar, under *Manage this run*) upserts the selected run into a PostGIS database:
+enter its URL (`postgresql://user:password@host:5432/database`) and a schema (default `iris_staging`). The URL
+is kept only in the browser session; leave it empty to use `IRIS_STAGING_DATABASE_URL`. Exporting the same run
+again updates its rows. From the Docker dashboard, reach the bundled database as
+`postgresql://<user>:<password>@staging-db:5432/<db>` and a database on your machine via `host.docker.internal`
+instead of `localhost`.
 
 ### Changing the configuration
 
@@ -214,6 +233,9 @@ uv run python scripts/fetch_osm_parcels.py
 | `warning: VIRTUAL_ENV=… does not match the project environment` | Harmless (an active conda/venv); run `conda deactivate` / `deactivate` to silence it |
 | A few `read_error` scenes in `scenes.csv` | Transient HTTP errors from the COG host; they are recorded and the run continues. Re-run to fill them |
 | `schema iris_staging does not exist` with `--to-db` | Run the migration first: `docker compose run --rm migrate` (or `uv run alembic upgrade head` with `IRIS_STAGING_DATABASE_URL` set) |
+| Export: `schema … does not exist` | Tick *Create PostGIS, the schema and the tables* (CLI: `--create-tables`), or run the migration |
+| Export: `parcel … already exists … with a different geometry` | That `parcel_id` is stored with another outline, and older observations refer to it. Export into another schema. (New-analysis boxes from before this check all used the id `point-box`; their ids now include the location and size) |
+| Export: `connection failed … Connection refused` from the Docker dashboard | `localhost` is the container itself; use `staging-db` or `host.docker.internal` |
 
 ---
 
@@ -304,6 +326,14 @@ The Alembic version table lives in `iris_staging` as well. Before writing, the w
 ([`staging.py`](src/iris_ndwi/staging.py)) checks that every target table is in `iris_staging`. All writes are
 idempotent upserts in a single transaction.
 
+The export (`iris-ndwi export`, dashboard *Export to PostGIS*) writes the same four tables into one chosen
+schema: the table definitions are renamed with SQLAlchemy's `schema_translate_map`, so nothing can land
+outside it, and `iris_core`, `public` and `pg_*` are refused. It reads the run folder (`manifest.json`, the two
+CSVs, `parcels.geojson`), so runs can be exported long after they finished. Geometries are stored in EPSG:25832;
+a New-analysis run in another UTM zone is reprojected (its `area_m2` stays as measured in its own zone). An
+existing `parcel_id` with a different outline (more than 0.5 m Hausdorff distance) stops the export rather than
+silently moving the parcel under older observations.
+
 | Table | Key | Content |
 |---|---|---|
 | `s2_ndwi_run` | `run_id` | timestamp + config hash, source, `synthetic_data`, method version, full manifest (JSONB) |
@@ -316,8 +346,10 @@ File outputs per run, under `output/<run_id>/`: `observations.csv`, `scenes.csv`
 
 ## Tests
 
-`uv run pytest` runs 102 offline tests in under a second. `docker compose run --rm tests` runs all 103, adding the PostGIS
-round trip, which checks SRID 25832, geometry validity and idempotent upserts and then deletes its own rows.
+`uv run pytest` runs 112 offline tests in under a second. `docker compose run --rm tests` runs all 114, adding two PostGIS
+round trips: the `iris_staging` writer (SRID 25832, geometry validity, idempotent upserts; it deletes its own rows) and
+the export into a fresh schema (tables created on request only, idempotent, refuses to move an existing parcel; the
+schema is dropped afterwards).
 Synthetic scene ids carry a `SYNTHETIC_` prefix, so test data can never overwrite real rows. The tests cover:
 
 - **NDWI:** known values; zero denominator (NaN, no warning); negative reflectance; out-of-range values;
@@ -333,6 +365,8 @@ Synthetic scene ids carry a `SYNTHETIC_` prefix, so test data can never overwrit
   wrong tile, cloud pre-filter, double offset, an empty period, and identical results on repeated runs.
 - **New analysis and re-runs:** metric CRS per UTM zone, automatic tile choice from real STAC items, box
   size, a complete point run written to disk, and re-runs with new dates or a resized box.
+- **PostGIS export:** `iris_core`, `public` and invalid schema names are refused; run-folder rows get the
+  right types (empty CSV cells become NULL); a box in another UTM zone is reprojected to EPSG:25832.
 
 ## Assumptions and limitations
 
