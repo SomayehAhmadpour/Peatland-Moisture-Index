@@ -21,6 +21,7 @@ flowchart TD
     S2[("<b>Sentinel-2 L2A</b><br/>Earth Search STAC, Cloud-Optimized GeoTIFFs")]
     FUTSRC[("<b>Future sources</b><br/>Google Earth Engine, Landsat 8/9<br/>Copernicus Data Space, Sentinel-1 SAR<br/><i>via the SceneSource adapter</i>")]
     CFG[/"<b>Config + parcels</b><br/>config/wurzacher_ried.yaml, data/parcels/"/]
+    FUTSHP[/"<b>Future work: shapefile upload</b><br/>select the area from a .shp file"/]
 
     ACQ["<b>1. Acquisition</b><br/>search both collections, drop other tiles<br/>de-duplicate acquisitions, cloud pre-filter<br/><i>sources.py, scenes.py</i>"]
     PRO["<b>2. Processing</b><br/>read B02, B03, B08, SCL windows<br/>BOA-offset harmonisation + guard<br/>SCL + fog masks → NDWI per pixel<br/><i>sources.py, ndwi.py</i>"]
@@ -33,6 +34,7 @@ flowchart TD
     S2 --> ACQ --> PRO --> ANA --> STO --> SRV --> UI
     CFG -.-> ACQ
     CFG -.-> ANA
+    FUTSHP -.->|planned| CFG
     FUTSRC -.->|planned| ACQ
     SRV -.->|planned| FUTAI
 
@@ -43,7 +45,7 @@ flowchart TD
     class S2,CFG source
     class ACQ,PRO,ANA,STO,SRV stage
     class UI ui
-    class FUTSRC,FUTAI future
+    class FUTSRC,FUTSHP,FUTAI future
 ```
 
 Every stage records what it drops and why (scene ledger, pixel status counts, rejection reasons), so each
