@@ -43,6 +43,7 @@ st.markdown(
       div[data-testid="stMetric"] {{ background: white; border: 1px solid {BORDER}; border-radius: 10px; padding: 10px 14px; }}
       div[data-testid="stMetricLabel"] p {{ font-size: 12px; color: {TEXT_MUTED}; }}
       .block-container {{ padding-top: 1.6rem; }}
+      [data-testid="stAppDeployButton"], [data-testid="stMainMenu"] {{ display: none !important; }}
       .badge {{ display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; }}
     </style>
     """,
