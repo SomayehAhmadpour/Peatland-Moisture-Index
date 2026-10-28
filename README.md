@@ -13,6 +13,35 @@ the exact Sentinel-2 files it came from.
   as synthetic in every output (`manifest.json → synthetic_data`, the run summary, and the `iris_staging.s2_ndwi_run.synthetic_data` column).
 - **Quality report.** See [`QUALITY_REPORT.md`](QUALITY_REPORT.md) for coverage, rejected data, edge cases and acceptance evidence.
 
+## Workflow
+
+```mermaid
+flowchart TD
+    S2[("<b>Sentinel-2 L2A</b><br/>Earth Search STAC · Cloud-Optimized GeoTIFFs")]
+    CFG[/"<b>Config + parcels</b><br/>config/wurzacher_ried.yaml · data/parcels/"/]
+
+    ACQ["<b>1 · Acquisition</b><br/>search both collections · drop other tiles<br/>de-duplicate acquisitions · cloud pre-filter<br/><i>sources.py · scenes.py</i>"]
+    PRO["<b>2 · Processing</b><br/>read B02 / B03 / B08 / SCL windows<br/>BOA-offset harmonisation + guard<br/>SCL + fog masks → NDWI per pixel<br/><i>sources.py · ndwi.py</i>"]
+    ANA["<b>3 · Analytics</b><br/>pixels per parcel · status counts<br/>median, p25–p75, valid fraction<br/>accept / reject per parcel × scene<br/><i>parcels.py · zonal.py · pipeline.py</i>"]
+    STO["<b>4 · Storage</b><br/>CSV · GeoJSON (EPSG:25832) · manifest<br/>PostGIS <code>iris_staging</code> (upserts)<br/><i>outputs.py · staging.py · alembic/</i>"]
+    SRV["<b>5 · Results & queries</b><br/>quality summary · validation SQL<br/>rule-based interpretation<br/><i>report.py · validation_queries.sql · interpret.py</i>"]
+    UI["<b>6 · Streamlit dashboard</b><br/>KPIs · map · time series · scene ledger<br/><i>ui/app.py</i>"]
+
+    S2 --> ACQ --> PRO --> ANA --> STO --> SRV --> UI
+    CFG -.-> ACQ
+    CFG -.-> ANA
+
+    classDef source fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e
+    classDef stage fill:#f8fafc,stroke:#334155,color:#0f172a
+    classDef ui fill:#dcfce7,stroke:#15803d,color:#14532d
+    class S2,CFG source
+    class ACQ,PRO,ANA,STO,SRV stage
+    class UI ui
+```
+
+Every stage records what it drops and why (scene ledger, pixel status counts, rejection reasons), so each
+number on the dashboard can be traced back through the chain to the exact Sentinel-2 files.
+
 ---
 
 ## Quick start
