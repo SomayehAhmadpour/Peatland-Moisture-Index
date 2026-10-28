@@ -207,6 +207,7 @@ uv run python scripts/fetch_osm_parcels.py
 | Symptom | Fix |
 |---|---|
 | `ERR_CONNECTION_REFUSED` on localhost:8501 | The dashboard isn't running. Start it and keep the terminal open |
+| New-analysis map stays empty ("trouble loading the streamlit_folium component") | Two dashboards share port 8501, e.g. the Docker `ui` service and a local `streamlit run`; the page can then load from one and the map from the other. Stop one (`docker compose stop ui` or Ctrl+C) and reload. After pulling new code, restart the dashboard (and `docker compose build` for Docker) |
 | `Port 8501 is already in use` | Another copy is running. Use it, or add `--server.port 8502` |
 | `warning: VIRTUAL_ENV=… does not match the project environment` | Harmless (an active conda/venv); run `conda deactivate` / `deactivate` to silence it |
 | A few `read_error` scenes in `scenes.csv` | Transient HTTP errors from the COG host; they are recorded and the run continues. Re-run to fill them |

@@ -212,8 +212,8 @@ def new_analysis_page() -> None:
             st.rerun()
         st.caption(
             "Click to move the box. Switch to the satellite layer (top right) to see the ground. "
-            "If the map stays empty, open the dashboard in Chrome, Safari or Firefox: VS Code's built-in browser "
-            "can't load this map. Latitude and longitude can always be typed in."
+            "If the map stays empty, check that only one dashboard runs on port 8501 (e.g. `docker compose stop ui` "
+            "when using the local one) and reload. Latitude and longitude can always be typed in."
         )
 
     if not busy:
