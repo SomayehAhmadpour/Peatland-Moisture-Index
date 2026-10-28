@@ -16,7 +16,7 @@ the exact Sentinel-2 files it came from.
 ## Workflow
 
 ```mermaid
-%%{init: {"fontFamily": "Arial, Helvetica, sans-serif", "themeVariables": {"fontFamily": "Arial, Helvetica, sans-serif"}}}%%
+%%{init: {"fontFamily": "Arial, Helvetica, sans-serif", "themeVariables": {"fontFamily": "Arial, Helvetica, sans-serif"}, "flowchart": {"wrappingWidth": 340}}}%%
 flowchart TD
     S2[("<b>Sentinel-2 L2A</b><br/>Earth Search STAC, Cloud-Optimized GeoTIFFs")]
     FUTSRC[("<b>Future sources</b><br/>Google Earth Engine, Landsat 8/9<br/>Copernicus Data Space, Sentinel-1 SAR<br/><i>via the SceneSource adapter</i>")]
