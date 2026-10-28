@@ -48,6 +48,7 @@ st.markdown(
       [data-testid="stSidebar"] div[data-baseweb="select"] > div {{ background-color: #111827 !important;
           border-color: rgba(255,255,255,0.12) !important; }}
       [data-testid="stSidebar"] div[data-baseweb="select"] * {{ color: #F8FAFC !important; }}
+      [data-testid="stSidebar"] button * {{ color: #000000 !important; }}
       [data-testid="stSidebar"] span[data-baseweb="tag"] {{ background-color: {PRIMARY} !important; }}
       div[data-testid="stMetricValue"] > div {{ font-size: 1.55rem; }}
       div[data-testid="stMetric"] {{ background: white; border: 1px solid {BORDER}; border-radius: 10px; padding: 10px 14px; }}
