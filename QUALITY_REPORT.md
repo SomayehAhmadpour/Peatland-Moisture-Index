@@ -1,8 +1,9 @@
 # Quality and error report — IRIS-SAT-NDWI
 
-Representative run: [`examples/runs/20261027T215439Z-7323912d/`](examples/runs/20261027T215439Z-7323912d/)
-(real Sentinel-2 L2A, tile 32UNU, 2021-01-01 → 2026-10-26, config SHA-256 `7323912d…`).
-The run's own generated summary is [`quality_summary.md`](examples/runs/20261027T215439Z-7323912d/quality_summary.md),
+Representative run: [`examples/runs/20261029T130329Z-7323912d/`](examples/runs/20261029T130329Z-7323912d/)
+(real Sentinel-2 L2A, tile 32UNU, 2021-01-01 → 2026-10-26, config SHA-256 `7323912d…`, produced with exactly the
+pinned versions in `uv.lock`: rasterio 1.5.1 / GDAL 3.12.4).
+The run's own generated summary is [`quality_summary.md`](examples/runs/20261029T130329Z-7323912d/quality_summary.md),
 and [`examples/ndwi_timeseries.svg`](examples/ndwi_timeseries.svg) plots the accepted observations.
 
 ## 1. Coverage
@@ -33,11 +34,20 @@ cloud anywhere over 1 800 ha already pushes the valid fraction below 0.8.
 | `ref-field-100m` | −0.702 (6) | −0.733 (14) | −0.626 (8) | −0.698 (7) | −0.714 (8) | −0.577 (13) |
 | `wr-bog-osm` | −0.706 (2) | −0.671 (10) | −0.677 (5) | −0.703 (7) | −0.667 (5) | −0.674 (10) |
 
-In every year except 2026, the open bog core is consistently **wetter (higher NDWI) than the reference
-field**, by 0.01–0.12. Year-to-year differences in the bog core (≤ 0.09) are larger than the spread
-within the parcel (about 0.014), but some years rest on only 4–8 scenes. Treat them as indications, not
-trends. No accepted bog-core pixel ever exceeds NDWI 0 (water fraction 0), so open water is not
+In every summer except 2026 the open bog core has a **higher NDWI than the reference field**, by
+0.01–0.12. This is a land-cover contrast, not a moisture ranking: over vegetation, green/NIR NDWI is driven
+mostly by NIR, so the field's crop stage, mowing and harvest move it as much as wetness does. Paired by date,
+the two series correlate only weakly (r = 0.4, 126 dates), and in June the median difference is 0. Each parcel
+is therefore compared with itself: the same summer months across years (below) and, in `quality_summary.md`,
+the latest value against the same calendar month in other years.
+Year-to-year differences in the bog core (≤ 0.09) are larger than the spread within the parcel (about 0.014),
+but some years rest on only 4–8 scenes. Treat them as indications, not trends. No accepted bog-core pixel ever exceeds NDWI 0 (water fraction 0), so open water is not
 detected at 10 m. The big bog polygon does show it in 91 of 112 accepted scenes, from its pools and ditches.
+
+**Monitoring.** The run's `quality_summary.md` compares each parcel's latest accepted value with the same
+calendar month in other years. On 2026-10-07/09 all three bog parcels are **above** their usual October range
+(bog core −0.622 vs −0.711 to −0.680, n = 8), while the field is **below** its range. Each is judged against
+its own history, so the result does not depend on how bog and field differ in vegetation.
 
 ## 2. Rejected data
 
@@ -115,7 +125,7 @@ detected at 10 m. The big bog polygon does show it in 91 of 112 accepted scenes,
 | Temporal comparability | Per-item offset harmonisation; the same surface before and after baseline 04.00 gives the same NDWI (test). **Cross-collection check:** different files from two archives give identical parcel medians for **31/31** matched observations in 2023 and **28/28** in 2021 (`examples/cross_collection_check_*.csv`). Year comparisons are limited to the same season |
 | Acquisition dates | UTC `acquired_at` on every scene and observation; duplicates resolved per UTC day; sun elevation recorded |
 | Threshold assumptions | All in config and documented: cloud pre-filter 80 %, valid fraction 0.8, SCL {4,5,6}, blue 0.12, water NDWI > 0 (McFeeters, not calibrated), offset guard 0.5 |
-| Deterministic / auditable | Two live runs of the same config ~35 min apart (before the blue test was added) gave identical scene, observation and acceptance counts and identical summary tables; repeated runs give identical rows (test); config hash, software versions and exact COG URLs in `manifest.json` and `scenes.csv`; every excluded pixel has a status |
+| Deterministic / auditable | Two live runs of the same config ~35 min apart (before the blue test was added) gave identical scene, observation and acceptance counts and identical summary tables; repeated runs give identical rows (test); config hash, thresholds digest, software versions and the exact COG URLs of all four bands in `manifest.json` and `scenes.csv`; every excluded pixel has a status; in `iris_staging`, results under other thresholds get new keys instead of overwriting, and each run keeps its own scene decisions (`s2_ndwi_run_scene`, migration 0002, tested against PostGIS) |
 | Spatial output, EPSG:25832 | Parcels stored as valid `MULTIPOLYGON` SRID 25832 (CHECK `ST_IsValid`); validation SQL query 3 |
 
 ## 6. Known gaps and uncertainty
@@ -131,19 +141,26 @@ detected at 10 m. The big bog polygon does show it in 91 of 112 accepted scenes,
 - **What NDWI measures here.** Green/NIR NDWI reflects surface wetness and canopy state, not soil moisture.
   There is no field data to calibrate against. NDMI (B08/B11) would be the natural companion index.
 - **Thresholds.** The 0.12 blue threshold and the 0.5 guard were set from this site's data and could
-  need tuning elsewhere. Thin dark haze can still pass.
+  need tuning elsewhere. Thin dark haze can still pass. The guard assumes mostly land: over open water it
+  mistakes dark water for a double offset (30 scenes rejected at Hornsea Mere).
+- **Masks.** No buffer is added around SCL clouds and shadows, and SCL is 20 m, so cloud edges can leak
+  into a parcel. The 0.8 valid fraction limits the effect on the result; a mask dilation is the next step.
+- **Reference parcel.** The farmland box is a contrast, not a moisture baseline (section 1). A drained or
+  cut-over peat parcel nearby would be a better reference.
 - **Parcels.** The boundaries come from OSM, not the official LUBW data. About 1 % of the bog polygon
   (12 ha) lies outside the NSG polygon.
 
 ## 7. Docker verification (Apple Silicon, Colima)
 
-`docker compose run --rm tests`: **133/133 passed**, including both PostGIS round trips. The full live run
-inside Docker (`docker compose run --rm pipeline`) reproduced the example run exactly: 263 scenes,
-1 052 observations, 514 accepted. That was on a different platform (Linux arm64) and with a different
-library stack from the one used to create the example (rasterio 1.5.1 / GDAL 3.12.4 vs 1.4.3 / 3.9.3).
-A value-by-value comparison of a summer-2025 run across the two library versions found 0 differing
-values in 56 observations. The validation queries pass against the populated database, and the dashboard
-container serves the page. Running the Docker stack for the first time uncovered, and led to fixes for:
+`docker compose run --rm tests`: **138/138 passed**, including both PostGIS round trips; the same suite
+runs in GitHub Actions on every push. The full live run inside Docker (`docker compose run --rm pipeline`)
+reproduced the example run exactly: 263 scenes, 1 052 observations, 514 accepted, on a different platform
+(Linux arm64) and library stack (rasterio 1.5.1 / GDAL 3.12.4) from the one that produced the first example
+(1.4.3 / 3.9.3). The bundled example was then re-run with the pinned stack and compared value by value with
+that first run: all 972 scene decisions and all 1 052 observations identical, 0 differing values in any
+column. Migration 0002 was applied to a populated database (6 runs, 984 scenes, 1 080 observations) and
+downgraded and re-applied without losing a row. The validation queries pass against the populated
+database, and the dashboard container serves the page. Running the Docker stack for the first time uncovered, and led to fixes for:
 
 - rasterio 1.4.3 has no Linux ARM wheel, so it was upgraded to 1.5.1 (which requires Python ≥ 3.12) and
   `libexpat1` was added to the image.

@@ -1,0 +1,37 @@
+# All tests on every push: the offline suite plus the PostGIS round trips,
+# against a throw-away PostGIS service (same image as docker-compose.yml).
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-24.04
+    services:
+      staging-db:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_DB: iris_staging_db
+          POSTGRES_USER: iris_staging
+          POSTGRES_PASSWORD: ci-only-throwaway
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U iris_staging -d iris_staging_db"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      IRIS_STAGING_DATABASE_URL: postgresql+psycopg://iris_staging:ci-only-throwaway@localhost:5432/iris_staging_db
+      IRIS_TEST_DATABASE_URL: postgresql+psycopg://iris_staging:ci-only-throwaway@localhost:5432/iris_staging_db
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.3"
+      - name: Install (exact versions from uv.lock)
+        run: uv sync --frozen
+      - name: Migrate iris_staging
+        run: uv run alembic upgrade head
+      - name: Tests (offline + PostGIS)
+        run: uv run pytest -m "" -q
