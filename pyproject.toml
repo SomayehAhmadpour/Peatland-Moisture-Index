@@ -26,7 +26,6 @@ ui = [
     "folium==0.19.4",
     "pandas==2.2.3",
     "plotly==6.0.0",
-    "pydeck==0.9.1",
     "streamlit==1.42.2",
     "streamlit-folium==0.24.0",
 ]

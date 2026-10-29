@@ -20,7 +20,6 @@ from pathlib import Path
 import folium
 import pandas as pd
 import plotly.graph_objects as go
-import pydeck as pdk
 import streamlit as st
 from pydantic import ValidationError
 from shapely.geometry import mapping, shape
@@ -40,7 +39,9 @@ OUTPUT_DIR = ROOT / "output"
 RUN_ROOTS = [OUTPUT_DIR, ROOT / "examples" / "runs"]
 BASE_CONFIG = ROOT / "config" / "wurzacher_ried.yaml"  # quality settings reused by new analyses
 DEFAULT_POINT = (47.926242, 9.877493)  # Haidgauer Hochmoor open bog
-DEFAULT_AREA = {"area_west": "9°51′ E", "area_east": "9°55′ E", "area_south": "47°54′ N", "area_north": "47°57′ N"}  # Wurzacher Ried
+AREA_EXAMPLE = {"area_west": "9°51′ E", "area_east": "9°55′ E", "area_south": "47°54′ N", "area_north": "47°57′ N"}  # Wurzacher Ried
+CLICK_AREA = (0.05, 0.03)  # lon, lat extent of an area placed by a click (about 4 km × 3 km in Germany)
+ESRI_IMAGERY = "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
 AREA_MODE = "Area (lon/lat range)"
 S2_FIRST_DATE = date(2017, 1, 1)  # Sentinel-2 L2A archive is sparse before this
 
@@ -139,6 +140,30 @@ def ndwi_colour(value: float | None) -> list[int]:
     return [round(d + (w - d) * t) for d, w in zip(dry, wet)] + [170]
 
 
+def base_map() -> folium.Map:
+    """Satellite and street basemaps only; the view and the shapes go to st_folium separately.
+
+    st_folium rebuilds the whole map whenever this script changes, so nothing that moves
+    is part of it. Only Leaflet is loaded: folium also asks for jQuery, Bootstrap and icon
+    fonts, which these maps do not use, and the map stays empty if one of them fails to load.
+    """
+    fmap = folium.Map(location=DEFAULT_POINT, zoom_start=15, tiles=None, control_scale=True)
+    fmap.default_js = [js for js in fmap.default_js if js[0] == "leaflet"]
+    fmap.default_css = [css for css in fmap.default_css if css[0] == "leaflet_css"]
+    folium.TileLayer("OpenStreetMap", name="Map", show=False).add_to(fmap)
+    folium.TileLayer(ESRI_IMAGERY, attr="Esri World Imagery", name="Satellite").add_to(fmap)
+    folium.LayerControl(collapsed=False).add_to(fmap)
+    return fmap
+
+
+def fit_zoom(bounds: tuple[float, float, float, float], max_zoom: int) -> int:
+    """Largest Leaflet zoom at which lon/lat bounds fit a map of about 560 × 440 px."""
+    min_x, min_y, max_x, max_y = bounds
+    stretch = 1 / math.cos(math.radians((min_y + max_y) / 2))  # Web Mercator
+    px_per_degree = min(560 / max(max_x - min_x, 1e-9), 440 / max((max_y - min_y) * stretch, 1e-9))
+    return max(2, min(max_zoom, math.floor(math.log2(px_per_degree * 360 / 256))))
+
+
 # ---------------------------------------------------------------------------
 # New analysis: any point, any dates
 # ---------------------------------------------------------------------------
@@ -146,8 +171,7 @@ def ndwi_colour(value: float | None) -> list[int]:
 
 def new_analysis_page() -> None:
     state = st.session_state
-    state.setdefault("point", DEFAULT_POINT)
-    lat, lon = state.point
+    lat, lon = state.get("point") or (None, None)  # None until the map is clicked or a value is typed
     busy = state.get("running", False)  # set by the Run button; cleared when the run ends
 
     st.markdown("## New analysis")
@@ -159,7 +183,7 @@ def new_analysis_page() -> None:
     # The area texts are kept outside the inputs, which Streamlit forgets while point mode is shown.
     # A map click moves the area; it is applied here, before the inputs are drawn.
     pending = state.pop("pending_area", {})
-    area_text = state.area_text = {**DEFAULT_AREA, **state.get("area_text", {}), **pending}
+    area_text = state.area_text = {**dict.fromkeys(AREA_EXAMPLE, ""), **state.get("area_text", {}), **pending}
     if pending or not state.get("area_inputs_shown"):  # restore after point mode, or move after a click
         for key, value in area_text.items():
             state[key] = value
@@ -172,28 +196,37 @@ def new_analysis_page() -> None:
                              disabled=busy) == AREA_MODE  # fmt: skip
         state.area_inputs_shown = area_mode
         name = st.text_input("Name", value="My area" if area_mode else "My box", max_chars=60)
-        problem = None
+        problem = hint = None
+        west = None
         if area_mode:
             c1, c2 = st.columns(2)
-            texts = {key: (c1 if i % 2 == 0 else c2).text_input(label, key=key) for i, (key, label) in enumerate([
-                ("area_west", "West (longitude)"), ("area_east", "East (longitude)"),
-                ("area_south", "South (latitude)"), ("area_north", "North (latitude)"),
-            ])}  # fmt: skip
+            texts = {key: (c1 if i % 2 == 0 else c2).text_input(label, key=key, placeholder=AREA_EXAMPLE[key])
+                     for i, (key, label) in enumerate([
+                         ("area_west", "West (longitude)"), ("area_east", "East (longitude)"),
+                         ("area_south", "South (latitude)"), ("area_north", "North (latitude)"),
+                     ])}  # fmt: skip
             state.area_text = texts
-            try:
-                west, east = (parse_coordinate(texts[k], "lon") for k in ("area_west", "area_east"))
-                south, north = (parse_coordinate(texts[k], "lat") for k in ("area_south", "area_north"))
-                lat, lon = (south + north) / 2, (west + east) / 2
-            except ValueError as exc:
-                problem, west = str(exc), None
+            if not any(text.strip() for text in texts.values()):
+                hint = "Click the map to place an area, or enter its four edges."
+            else:
+                try:
+                    west, east = (parse_coordinate(texts[k], "lon") for k in ("area_west", "area_east"))
+                    south, north = (parse_coordinate(texts[k], "lat") for k in ("area_south", "area_north"))
+                    lat, lon = (south + north) / 2, (west + east) / 2
+                except ValueError as exc:
+                    problem, west = str(exc), None
             st.caption("Decimal degrees (131.4833) or degrees and minutes (131°29′ E, 46 28 N); minus or W/S for west/south.")
         else:
             size_m = st.number_input("Box edge (m)", min_value=20, max_value=2000, value=100, step=10,
                                      help="Snapped to the 10 m Sentinel-2 pixel grid")  # fmt: skip
             c1, c2 = st.columns(2)
-            lat = c1.number_input("Latitude", min_value=-56.0, max_value=84.0, value=float(lat), format="%.6f")
-            lon = c2.number_input("Longitude", min_value=-180.0, max_value=180.0, value=float(lon), format="%.6f")
+            lat = c1.number_input("Latitude", min_value=-56.0, max_value=84.0, value=lat, format="%.6f",
+                                  placeholder="e.g. 47.926242")  # fmt: skip
+            lon = c2.number_input("Longitude", min_value=-180.0, max_value=180.0, value=lon, format="%.6f",
+                                  placeholder="west is negative")  # fmt: skip
             state.point = (lat, lon)
+            if lat is None or lon is None:
+                hint = "Click the map to place the box, or enter a latitude and longitude."
         today = datetime.now(timezone.utc).date()
         period = st.date_input(
             "Period", value=(today - timedelta(days=180), today),
@@ -203,7 +236,7 @@ def new_analysis_page() -> None:
         config = None
         if problem is None and not (isinstance(period, tuple) and len(period) == 2):
             problem = "Choose a start and an end date."
-        if problem is None:
+        if problem is None and hint is None:
             label = name.strip() or ("My area" if area_mode else "My box")
             try:  # no network: the configuration and the parcel are only checked here
                 if area_mode:
@@ -216,6 +249,8 @@ def new_analysis_page() -> None:
                 problem = str(exc)
         if problem:
             st.error(problem)
+        elif hint:
+            st.info(hint)
         elif area_mode:
             km2 = load_parcels(config)[0].area_m2 / 1e6
             st.caption(
@@ -250,45 +285,42 @@ def new_analysis_page() -> None:
             )
 
     with map_col:
+        box = None
         try:
-            if area_mode:
-                box = lonlat_rectangle(west, south, east, north, "EPSG:4326") if west is not None else None
-            else:
+            if area_mode and west is not None:
+                box = lonlat_rectangle(west, south, east, north, "EPSG:4326")
+            elif not area_mode and lat is not None and lon is not None:
                 box = reproject(square_box(lat, lon, size_m, 10, metric_crs(lat, lon)), metric_crs(lat, lon), "EPSG:4326")
         except Exception:  # noqa: BLE001 - preview only
-            box = None
-        if area_mode and box is None:
-            lat, lon = DEFAULT_POINT
-        fmap = folium.Map(location=[lat, lon], zoom_start=15, tiles=None, control_scale=True)
-        if area_mode and box is not None:
-            min_x, min_y, max_x, max_y = box.bounds
-            fmap.fit_bounds([[min_y, min_x], [max_y, max_x]], padding=(20, 20))
-        folium.TileLayer("OpenStreetMap", name="Map").add_to(fmap)
-        folium.TileLayer(
-            "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-            attr="Esri World Imagery", name="Satellite",
-        ).add_to(fmap)  # fmt: skip
+            pass
+        selection = folium.FeatureGroup(name="Selection")
         if box is not None:
-            folium.GeoJson(mapping(box), name="Area" if area_mode else "Box", style_function=lambda _: {"color": "#FFFFFF", "fillColor": "#FFFFFF", "weight": 2, "fillOpacity": 0.15}).add_to(fmap)
-        if not area_mode:
-            folium.CircleMarker([lat, lon], radius=5, color="#FFFFFF", weight=2, fill=True, fill_color="#2563EB", fill_opacity=1,
-                                tooltip=f"{lat:.6f}, {lon:.6f}").add_to(fmap)  # vector: no marker image to download
-        folium.LayerControl(collapsed=False).add_to(fmap)
-        clicked = st_folium(fmap, height=480, use_container_width=True, returned_objects=["last_clicked"], key="picker")
+            state.map_centre = (lat, lon)
+            folium.GeoJson(mapping(box), style_function=lambda _: {"color": "#FFFFFF", "fillColor": "#FFFFFF", "weight": 2, "fillOpacity": 0.15}).add_to(selection)
+            if not area_mode:
+                # A CSS dot: no marker image to download, and a CircleMarker breaks st_folium's layer updates
+                dot = '<div style="width:10px;height:10px;border-radius:50%;background:#2563EB;border:2px solid #FFFFFF"></div>'
+                folium.Marker([lat, lon], icon=folium.DivIcon(html=dot, icon_size=(14, 14), icon_anchor=(7, 7)),
+                              tooltip=f"{lat:.6f}, {lon:.6f}").add_to(selection)  # fmt: skip
+        clicked = st_folium(
+            base_map(), key="picker", height=480, use_container_width=True, returned_objects=["last_clicked"],
+            center=state.get("map_centre", DEFAULT_POINT), zoom=None if box is None else fit_zoom(box.bounds, 16),
+            feature_group_to_add=selection if box is not None else None,
+        )  # fmt: skip
         click = (clicked or {}).get("last_clicked")
         if click and click != state.get("last_click"):
             state.last_click = click
             if not area_mode:
                 state.point = (round(click["lat"], 6), round(click["lng"], 6))
-            elif west is not None:  # same size, new centre
-                dx, dy = click["lng"] - lon, click["lat"] - lat
+            else:  # same size and a new centre, or a new area of the default size
+                half_x, half_y = ((east - west) / 2, (north - south) / 2) if west is not None else (CLICK_AREA[0] / 2, CLICK_AREA[1] / 2)
                 state.pending_area = {
-                    "area_west": f"{west + dx:.5f}", "area_east": f"{east + dx:.5f}",
-                    "area_south": f"{south + dy:.5f}", "area_north": f"{north + dy:.5f}",
+                    "area_west": f"{click['lng'] - half_x:.5f}", "area_east": f"{click['lng'] + half_x:.5f}",
+                    "area_south": f"{click['lat'] - half_y:.5f}", "area_north": f"{click['lat'] + half_y:.5f}",
                 }  # fmt: skip
             st.rerun()
         st.caption(
-            f"Click to move the {'area' if area_mode else 'box'}. Switch to the satellite layer (top right) to see the ground. "
+            f"Click to place the {'area' if area_mode else 'box'}; a new click replaces it. Switch to the street map at the top right. "
             "If the map stays empty, check that only one dashboard runs on port 8501 (e.g. `docker compose stop ui` "
             "when using the local one) and reload. Latitude and longitude can always be typed in."
         )
@@ -449,6 +481,9 @@ with st.sidebar:
             st.rerun()
     elif st.button("＋ New analysis", use_container_width=True, help="Any point on the map, any dates"):
         st.session_state.new_analysis = True
+        # Start with nothing selected; the map opens where the last selection was.
+        st.session_state.point = None
+        st.session_state.area_text = {}
         st.rerun()
 
 if st.session_state.new_analysis or not runs:
@@ -554,47 +589,35 @@ map_col, panel_col = st.columns([7, 5], gap="medium")
 
 with map_col:
     scene_obs = in_period[in_period["item_id"] == item_id].set_index("parcel_id") if item_id else pd.DataFrame()
-    features = []
+    shapes = folium.FeatureGroup(name="Parcels")
     for p in sorted(parcels, key=lambda p: -p["area_m2"]):  # big polygons first, boxes on top
         row = scene_obs.loc[p["parcel_id"]] if p["parcel_id"] in scene_obs.index else None
         value = row["ndwi_median"] if row is not None and row["status"] == "accepted" else None
         status = "no observation" if row is None else row["status"] if row["status"] == "accepted" else f"rejected: {row['rejection_reason']}"
-        features.append({
-            "type": "Feature",
-            "geometry": mapping(p["geometry"]),
-            "properties": {
+        red, green, blue, alpha = ndwi_colour(value)
+        style = {
+            "fillColor": f"#{red:02x}{green:02x}{blue:02x}", "fillOpacity": alpha / 255 * 0.8,
+            "color": "#FACC15" if p["parcel_id"] == parcel_id else "#FFFFFF",
+            "weight": 3 if p["parcel_id"] == parcel_id else 1.5,
+        }  # fmt: skip
+        folium.GeoJson(
+            {"type": "Feature", "geometry": mapping(p["geometry"]), "properties": {
                 "name": p["name"], "status": status,
                 "ndwi": "–" if value is None or pd.isna(value) else f"{value:.3f}",
                 "valid": "–" if row is None else f"{row['valid_fraction']:.0%}",
-                "fill": ndwi_colour(value),
-                "line": [37, 99, 235] if p["parcel_id"] == parcel_id else [30, 41, 59],
-                # metres; pydeck reads string kwargs as JS expressions, so no "pixels" units here
-                "width": 8 if p["parcel_id"] == parcel_id else (5 if p["area_m2"] < 1e5 else 12),
-            },
-        })  # fmt: skip
-    centre = parcel_by_id[parcel_id]["geometry"].centroid
-    min_x, min_y, max_x, max_y = parcel_by_id[parcel_id]["geometry"].bounds
-    span = max(max_x - min_x, (max_y - min_y) / math.cos(math.radians(centre.y)), 1e-6)
-    zoom = min(12.6, math.log2(600 / span))  # whole parcel visible: a 20 km area opens at about zoom 11
-    deck = pdk.Deck(
-        layers=[
-            pdk.Layer(
-                "GeoJsonLayer",
-                {"type": "FeatureCollection", "features": features},
-                pickable=True, stroked=True, filled=True,
-                get_fill_color="properties.fill", get_line_color="properties.line",
-                get_line_width="properties.width", line_width_min_pixels=1,
-            )
-        ],
-        initial_view_state=pdk.ViewState(latitude=centre.y, longitude=centre.x, zoom=zoom),
-        map_style="light",
-        tooltip={"html": "<b>{name}</b><br/>NDWI median: {ndwi}<br/>valid pixels: {valid}<br/>{status}"},
+            }},
+            style_function=lambda _, style=style: style,
+            tooltip=folium.GeoJsonTooltip(["name", "ndwi", "valid", "status"], aliases=["", "NDWI median", "valid pixels", ""]),
+        ).add_to(shapes)  # fmt: skip
+    geometry = parcel_by_id[parcel_id]["geometry"]
+    st_folium(
+        base_map(), key="results_map", height=470, use_container_width=True, returned_objects=[],
+        center=(geometry.centroid.y, geometry.centroid.x), zoom=fit_zoom(geometry.bounds, 16), feature_group_to_add=shapes,
     )  # fmt: skip
-    st.pydeck_chart(deck, height=470)
     st.caption(
         f"Parcel medians for scene **{labels.get(item_id, '–')}** · colour: brown = drier "
         f"(NDWI ≤ {NDWI_RANGE[0]}) → blue = wetter (≥ {NDWI_RANGE[1]}), grey = rejected · "
-        "100 m boxes are small: zoom in. Basemap © CARTO, © OpenStreetMap contributors."
+        "selected parcel outlined in yellow · switch between satellite and street map at the top right."
     )
 
 with panel_col:
