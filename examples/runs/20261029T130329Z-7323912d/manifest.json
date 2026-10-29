@@ -1,0 +1,98 @@
+{
+  "run_id": "20261029T130329Z-7323912d",
+  "started_at": "2026-10-29T13:03:29.161741+00:00",
+  "finished_at": "2026-10-29T13:07:18.437667+00:00",
+  "method_version": "ndwi-mcfeeters-b03b08-v1",
+  "source": "stac",
+  "synthetic_data": false,
+  "stac_url": "https://earth-search.aws.element84.com/v1",
+  "collections": [
+    "sentinel-2-c1-l2a",
+    "sentinel-2-l2a"
+  ],
+  "config": {
+    "study_area": "Wurzacher Ried (NSG 4.035), Bad Wurzach, DE-BW",
+    "stac_url": "https://earth-search.aws.element84.com/v1",
+    "collections": [
+      "sentinel-2-c1-l2a",
+      "sentinel-2-l2a"
+    ],
+    "mgrs_tile": "32UNU",
+    "start_date": "2021-01-01",
+    "end_date": "2026-10-26",
+    "target_crs": "EPSG:25832",
+    "max_scene_cloud_pct": 80.0,
+    "min_valid_fraction": 0.8,
+    "valid_scl_classes": [
+      4,
+      5,
+      6
+    ],
+    "require_positive_reflectance": true,
+    "water_threshold": 0.0,
+    "max_blue_reflectance": 0.12,
+    "max_below_offset_fraction": 0.5,
+    "parcels_geojson": "data/parcels/wurzacher_ried_osm.geojson",
+    "boxes": [
+      {
+        "parcel_id": "wr-core-100m",
+        "name": "Haidgauer Hochmoor open bog, 100 m x 100 m",
+        "kind": "bog-core",
+        "center_lat": 47.926242,
+        "center_lon": 9.877493,
+        "size_m": 100.0,
+        "snap_m": 10.0
+      },
+      {
+        "parcel_id": "ref-field-100m",
+        "name": "Agricultural field west of the reserve (reference), 100 m x 100 m",
+        "kind": "reference",
+        "center_lat": 47.93303,
+        "center_lon": 9.842128,
+        "size_m": 100.0,
+        "snap_m": 10.0
+      }
+    ],
+    "areas": [],
+    "output_dir": "output",
+    "max_workers": 8
+  },
+  "config_sha256": "7323912d27ac536694c331d9c08dbe4e422af64563cfaefe1b9a367f6bccbd63",
+  "method_params": [
+    "target_crs",
+    "valid_scl_classes",
+    "max_blue_reflectance",
+    "require_positive_reflectance",
+    "max_below_offset_fraction",
+    "min_valid_fraction",
+    "water_threshold"
+  ],
+  "method_params_sha256": "a4a864c4c44a9579784f770ff0dfbb86f94229e34507163ee03686e61b6496db",
+  "valid_scl_classes": {
+    "4": "vegetation",
+    "5": "not_vegetated",
+    "6": "water"
+  },
+  "counts": {
+    "items_found": 972,
+    "scenes_processed": 263,
+    "scenes_rejected": 709,
+    "observations": 1052,
+    "observations_accepted": 514
+  },
+  "licences": {
+    "imagery": "Copernicus Sentinel data, free and open (Sentinel data legal notice); contains modified Copernicus Sentinel data",
+    "parcels": [
+      "ODbL 1.0 (c) OpenStreetMap contributors",
+      "n/a (derived from configured coordinates)"
+    ]
+  },
+  "software": {
+    "python": "3.12.14",
+    "numpy": "2.2.3",
+    "rasterio": "1.5.1",
+    "shapely": "2.0.7",
+    "pyproj": "3.7.1",
+    "pystac-client": "0.8.6"
+  }
+}
