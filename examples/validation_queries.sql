@@ -2,16 +2,18 @@
 -- staging container, e.g.:
 --   docker compose exec staging-db psql -U iris_staging -d iris_staging_db -f /dev/stdin < examples/validation_queries.sql
 
--- 1. Every processed or rejected scene is in the ledger, with a reason when rejected.
+-- 1. Every processed or rejected scene is in the ledger, with a reason when rejected (real scenes only;
+--    synthetic scene ids start with SYNTHETIC_).
 SELECT selected, split_part(coalesce(rejection_reason, 'selected'), ':', 1) AS reason, count(*)
 FROM iris_staging.s2_scene
+WHERE item_id NOT LIKE 'SYNTHETIC\_%'
 GROUP BY 1, 2
 ORDER BY 1 DESC, 3 DESC;
 
--- 2. No duplicate acquisitions survive selection (platform + tile + UTC day).
+-- 2. No duplicate acquisitions survive selection (platform + tile + UTC day), real scenes only.
 SELECT platform, mgrs_tile, acquired_at::date AS day, count(*)
 FROM iris_staging.s2_scene
-WHERE selected
+WHERE selected AND item_id NOT LIKE 'SYNTHETIC\_%'
 GROUP BY 1, 2, 3
 HAVING count(*) > 1;                                   -- expect 0 rows
 
