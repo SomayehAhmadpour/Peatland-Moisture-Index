@@ -64,13 +64,29 @@ step checks the stored results against independent published NDWI; see [Evaluati
 
 ### Prerequisites
 
+- **[Git](https://git-scm.com/downloads)** to clone the repository (preinstalled on most macOS and Linux systems).
 - **Docker route:** [Docker Desktop](https://www.docker.com/products/docker-desktop/), or Docker Engine with Compose v2.
-  On macOS without Docker Desktop, [Colima](https://github.com/abiosoft/colima) works too (no admin rights needed):
-  `brew install colima docker docker-compose docker-buildx`, then `colima start --vm-type vz --vz-rosetta`.
+  On macOS without Docker Desktop, [Colima](https://github.com/abiosoft/colima) works too (no admin rights needed);
+  with [Homebrew](https://brew.sh): `brew install colima docker docker-compose docker-buildx`, then `colima start --vm-type vz --vz-rosetta`.
   The official `postgis/postgis` image is amd64-only, so Apple Silicon runs it emulated; Docker Desktop does this automatically, and Colima needs `--vz-rosetta`.
-- **Local route:** [uv](https://docs.astral.sh/uv/getting-started/installation/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`).
-  uv installs Python 3.12 and the pinned dependencies by itself.
+- **Local route:** [uv](https://docs.astral.sh/uv/getting-started/installation/): `curl -LsSf https://astral.sh/uv/install.sh | sh`
+  on macOS/Linux, `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"` on Windows
+  (or `brew install uv`). uv installs Python 3.12 and the pinned dependencies by itself.
 - Internet access for live runs (public Earth Search STAC/COGs, no account needed). Tests and the synthetic demo work offline.
+
+**Nothing else needs installing.** There is no separate Python, GDAL or PostgreSQL to set up: uv provides Python, the
+rasterio wheel bundles GDAL, and PostGIS runs in Docker (needed only for `--to-db`, the export and the two database tests).
+The packages and their exact versions are listed in [`pyproject.toml`](pyproject.toml) and locked in [`uv.lock`](uv.lock):
+
+| Group | Installed by | Packages |
+|---|---|---|
+| main | `uv sync` | rasterio (GDAL), numpy, shapely, pyproj, pystac-client, pydantic, pyyaml, SQLAlchemy, GeoAlchemy2, psycopg, Alembic |
+| `dev` | `uv sync` (default group) | pytest |
+| `ui` | `uv sync --group ui`, or automatically on the first `uv run --group ui …` | Streamlit, folium, streamlit-folium, plotly, pandas |
+| evaluation extras | `uv run --with …` (temporary, not added to the project) | matplotlib, scipy |
+
+Disk space: about 0.6 GB for the local environment (`.venv/`), or about 3 GB for the Docker images (pipeline image
+2.3 GB, PostGIS 0.9 GB).
 
 ```bash
 git clone https://github.com/SomayehAhmadpour/Peatland-Moisture-Index.git
@@ -81,6 +97,7 @@ cd Peatland-Moisture-Index
 
 ```bash
 cp .env.example .env                    # choose a local password; .env is git-ignored
+docker compose build                    # build the image (again after every code change or git pull)
 docker compose run --rm tests           # all tests, incl. PostGIS round trip
 docker compose run --rm pipeline        # live run 2021-01 → 2026-10 → output/ + iris_staging (~3 min)
 docker compose up ui                    # dashboard on http://localhost:8501 (Ctrl+C to stop)
