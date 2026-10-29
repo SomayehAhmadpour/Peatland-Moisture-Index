@@ -13,42 +13,45 @@ from shapely.geometry import mapping
 
 from iris_ndwi.config import SCL_CLASSES
 from iris_ndwi.ndwi import METHOD_VERSION
-from iris_ndwi.pipeline import RunResult
+from iris_ndwi.pipeline import METHOD_PARAMS, RunResult
+from iris_ndwi.scenes import Scene
 from iris_ndwi.zonal import ParcelObservation
 
 SCENE_COLUMNS = [
     "item_id", "collection", "acquired_at", "platform", "mgrs_tile", "processing_baseline", "generation_time",
     "scene_cloud_pct", "boa_offset_applied_flag", "boa_offset", "reflectance_scale", "sun_elevation", "selected",
-    "rejection_reason", "green_href", "nir_href", "scl_href",
+    "rejection_reason", "blue_href", "green_href", "nir_href", "scl_href",
 ]  # fmt: skip
+
+
+def _scene_metadata(s: Scene) -> dict:
+    return {
+        "collection": s.collection,
+        "platform": s.platform,
+        "mgrs_tile": s.mgrs_tile,
+        "processing_baseline": s.processing_baseline,
+        "generation_time": s.generation_time,
+        "scene_cloud_pct": round(s.scene_cloud_pct, 4),
+        "boa_offset_applied_flag": s.boa_offset_applied_flag,
+        "boa_offset": s.green.offset,
+        "reflectance_scale": s.green.scale,
+        "sun_elevation": s.sun_elevation,
+        "blue_href": s.blue.href,
+        "green_href": s.green.href,
+        "nir_href": s.nir.href,
+        "scl_href": s.scl.href,
+    }
 
 
 def scene_rows(result: RunResult) -> list[dict]:
     rows = [
-        {
-            "item_id": s.item_id,
-            "collection": s.collection,
-            "acquired_at": s.acquired_at.isoformat(),
-            "platform": s.platform,
-            "mgrs_tile": s.mgrs_tile,
-            "processing_baseline": s.processing_baseline,
-            "generation_time": s.generation_time,
-            "scene_cloud_pct": round(s.scene_cloud_pct, 4),
-            "boa_offset_applied_flag": s.boa_offset_applied_flag,
-            "boa_offset": s.green.offset,
-            "reflectance_scale": s.green.scale,
-            "sun_elevation": s.sun_elevation,
-            "selected": True,
-            "rejection_reason": None,
-            "green_href": s.green.href,
-            "nir_href": s.nir.href,
-            "scl_href": s.scl.href,
-        }
+        {"item_id": s.item_id, "acquired_at": s.acquired_at.isoformat(), **_scene_metadata(s),
+         "selected": True, "rejection_reason": None}
         for s in result.scenes
-    ]
+    ]  # fmt: skip
     rows += [
         {"item_id": r.item_id, "acquired_at": r.acquired_at.isoformat() if r.acquired_at else None,
-         "selected": False, "rejection_reason": r.reason}
+         **(_scene_metadata(r.scene) if r.scene else {}), "selected": False, "rejection_reason": r.reason}
         for r in result.scene_rejections
     ]  # fmt: skip
     return sorted(rows, key=lambda row: (row["acquired_at"] or "", row["item_id"]))
@@ -103,6 +106,8 @@ def manifest(result: RunResult) -> dict:
         "collections": result.config.collections,
         "config": result.config.model_dump(mode="json"),
         "config_sha256": result.config_sha256,
+        "method_params": list(METHOD_PARAMS),
+        "method_params_sha256": result.method_params_sha256,
         "valid_scl_classes": {c: SCL_CLASSES[c] for c in result.config.valid_scl_classes},
         "counts": {
             "items_found": result.n_items_found,

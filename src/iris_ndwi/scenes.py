@@ -118,6 +118,7 @@ class SceneRejection:
     item_id: str
     acquired_at: datetime | None
     reason: str
+    scene: Scene | None = None  # parsed metadata, kept for the ledger (None for metadata_error)
 
 
 def aoi_coverage(scene: Scene, aoi_wgs84: BaseGeometry | None) -> float:
@@ -175,7 +176,7 @@ def select_scenes(
             rejected.append(SceneRejection(item.get("id", "?"), None, f"metadata_error: {exc}"))
             continue
         if scene.mgrs_tile != mgrs_tile:
-            rejected.append(SceneRejection(scene.item_id, scene.acquired_at, "other_mgrs_tile"))
+            rejected.append(SceneRejection(scene.item_id, scene.acquired_at, "other_mgrs_tile", scene))
             continue
         candidates.append(scene)
 
@@ -204,10 +205,10 @@ def select_scenes(
         )
         winner, *superseded = group
         rejected += [
-            SceneRejection(s.item_id, s.acquired_at, f"superseded_by:{winner.item_id}") for s in superseded
+            SceneRejection(s.item_id, s.acquired_at, f"superseded_by:{winner.item_id}", s) for s in superseded
         ]
         if winner.scene_cloud_pct > max_scene_cloud_pct:
-            rejected.append(SceneRejection(winner.item_id, winner.acquired_at, "scene_cloud_cover_above_max"))
+            rejected.append(SceneRejection(winner.item_id, winner.acquired_at, "scene_cloud_cover_above_max", winner))
         else:
             selected.append(winner)
 

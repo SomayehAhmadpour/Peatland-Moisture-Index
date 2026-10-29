@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from statistics import median
 
+from iris_ndwi.interpret import Obs, seasonal_check
 from iris_ndwi.pipeline import RunResult
 
 # Summer window used for year-to-year comparison (same phenological stage).
@@ -77,6 +78,36 @@ def quality_summary(result: RunResult) -> str:
         ["Parcel", "Area", "Pixels", "Observations", "Accepted", "Rejected (reason: n)", "Accepted range", "Median NDWI"],
         rows,
     )
+
+    lines += [
+        "",
+        "## Monitoring: latest accepted value against the same month in other years",
+        "",
+        "Interquartile range of the parcel's accepted medians in the same calendar month of other years. "
+        "**below** = drier than usual for the time of year, **above** = wetter; at least "
+        "3 earlier values are needed. Green/NIR NDWI is a wetness indicator, not a calibrated soil moisture.",
+        "",
+    ]
+    monitor_rows = []
+    for parcel in result.parcels:
+        accepted = sorted(
+            (o for o in obs if o.parcel_id == parcel.parcel_id and o.status == "accepted"), key=lambda o: o.acquired_at
+        )
+        if not accepted:
+            monitor_rows.append([parcel.parcel_id, "–", "–", "–", 0, "no accepted observation"])
+            continue
+        check = seasonal_check([
+            Obs(o.acquired_at, o.status, o.ndwi_median, o.ndwi_p25, o.ndwi_p75, o.valid_fraction) for o in accepted
+        ])  # fmt: skip
+        monitor_rows.append([
+            parcel.parcel_id,
+            f"{check.latest.acquired_at:%Y-%m-%d}",
+            _fmt(check.latest.ndwi_median),
+            f"{_fmt(check.q1)} to {_fmt(check.q3)}" if check.position else "–",
+            check.n,
+            f"**{check.position}**" if check.position in ("above", "below") else check.position or "too few values",
+        ])  # fmt: skip
+    lines += _table(["Parcel", "Latest", "Median NDWI", "Usual range (same month)", "n", "Status"], monitor_rows)
 
     pixel_totals = Counter()
     for o in obs:

@@ -26,6 +26,7 @@ class ParcelObservation:
     item_id: str
     acquired_at: datetime
     method_version: str
+    method_params_sha256: str  # digest of the thresholds that decide values and acceptance
     n_pixels: int
     n_nodata: int
     n_scl_masked: int
@@ -63,12 +64,22 @@ def _round(value: float | np.floating | None) -> float | None:
     return None if value is None else round(float(value), 6)
 
 
+def observation_id(parcel_id: str, item_id: str, method_version: str, method_params_sha256: str) -> str:
+    """Stable key: the same parcel, scene, method and thresholds always give the same id.
+
+    A run with other thresholds gets new ids, so it adds rows instead of
+    overwriting results that were produced under different settings.
+    """
+    return f"{parcel_id}:{item_id}:{method_version}:{method_params_sha256[:8]}"
+
+
 def summarize(
     *,
     parcel_id: str,
     item_id: str,
     acquired_at: datetime,
     method_version: str,
+    method_params_sha256: str,
     inside: np.ndarray,
     values: np.ndarray,
     status: np.ndarray,
@@ -108,11 +119,12 @@ def summarize(
         }
 
     return ParcelObservation(
-        observation_id=f"{parcel_id}:{item_id}:{method_version}",
+        observation_id=observation_id(parcel_id, item_id, method_version, method_params_sha256),
         parcel_id=parcel_id,
         item_id=item_id,
         acquired_at=acquired_at,
         method_version=method_version,
+        method_params_sha256=method_params_sha256,
         n_pixels=n_pixels,
         n_nodata=counts[PixelStatus.NODATA],
         n_scl_masked=counts[PixelStatus.SCL_MASKED],

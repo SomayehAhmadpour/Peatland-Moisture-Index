@@ -33,7 +33,8 @@ from sqlalchemy.engine import Engine
 
 from iris_ndwi.outputs import SCENE_COLUMNS, manifest, observation_rows, scene_rows
 from iris_ndwi.parcels import reproject
-from iris_ndwi.pipeline import RunResult
+from iris_ndwi.pipeline import RunResult, method_params_digest
+from iris_ndwi.zonal import observation_id
 
 STAGING_SCHEMA = "iris_staging"
 DATABASE_URL_ENV = "IRIS_STAGING_DATABASE_URL"
@@ -94,14 +95,24 @@ scene = Table(
     Column("boa_offset", Float),
     Column("reflectance_scale", Float),
     Column("sun_elevation", Float),
-    Column("selected", Boolean, nullable=False),
-    Column("rejection_reason", Text),
+    Column("blue_href", Text),
     Column("green_href", Text),
     Column("nir_href", Text),
     Column("scl_href", Text),
-    Column("run_id", String(64), ForeignKey(f"{STAGING_SCHEMA}.s2_ndwi_run.run_id"), nullable=False),
     *_audit(),
     Index("idx_s2_scene_acquired_at", "acquired_at"),
+)  # fmt: skip
+
+# What each run decided about each item. Selection depends on the run's collections
+# and pre-filter, so it is kept per run instead of being overwritten on s2_scene.
+run_scene = Table(
+    "s2_ndwi_run_scene", metadata,
+    Column("run_id", String(64), ForeignKey(f"{STAGING_SCHEMA}.s2_ndwi_run.run_id"), primary_key=True),
+    Column("item_id", String(64), ForeignKey(f"{STAGING_SCHEMA}.s2_scene.item_id"), primary_key=True),
+    Column("selected", Boolean, nullable=False),
+    Column("rejection_reason", Text),
+    *_audit(),
+    Index("idx_s2_ndwi_run_scene_item", "item_id"),
 )  # fmt: skip
 
 observation = Table(
@@ -111,6 +122,7 @@ observation = Table(
     Column("item_id", String(64), ForeignKey(f"{STAGING_SCHEMA}.s2_scene.item_id"), nullable=False),
     Column("acquired_at", DateTime(timezone=True), nullable=False),
     Column("method_version", String(64), nullable=False),
+    Column("method_params_sha256", String(64), nullable=False),
     Column("n_pixels", Integer, nullable=False),
     Column("n_nodata", Integer, nullable=False),
     Column("n_scl_masked", Integer, nullable=False),
@@ -132,7 +144,9 @@ observation = Table(
     Column("rejection_reason", String(64)),
     Column("run_id", String(64), ForeignKey(f"{STAGING_SCHEMA}.s2_ndwi_run.run_id"), nullable=False),
     *_audit(),
-    UniqueConstraint("parcel_id", "item_id", "method_version", name="uq_s2_ndwi_observation_key"),
+    UniqueConstraint(
+        "parcel_id", "item_id", "method_version", "method_params_sha256", name="uq_s2_ndwi_observation_key"
+    ),
     CheckConstraint("status IN ('accepted', 'rejected')", name="ck_s2_ndwi_observation_status"),
     CheckConstraint("valid_fraction BETWEEN 0 AND 1", name="ck_s2_ndwi_observation_fraction"),
     CheckConstraint("ndwi_median IS NULL OR ndwi_median BETWEEN -1 AND 1", name="ck_s2_ndwi_observation_range"),
@@ -206,12 +220,17 @@ def prepare(engine: Engine, create_tables: bool = False) -> None:
             metadata.create_all(connection, checkfirst=True)
 
 
-def _upsert(connection, table: Table, rows: list[dict]) -> None:
+def _upsert(connection, table: Table, rows: list[dict], keep_known: bool = False) -> None:
+    """Insert or update by primary key. keep_known: a NULL never replaces a stored value."""
     if not rows:
         return
     key = [c.name for c in table.primary_key.columns]
     statement = insert(table).values(rows)
-    updates = {c.name: statement.excluded[c.name] for c in table.columns if c.name not in key and c.name != "created_at"}
+    updates = {
+        c.name: func.coalesce(statement.excluded[c.name], c) if keep_known else statement.excluded[c.name]
+        for c in table.columns
+        if c.name not in key and c.name not in ("created_at", "updated_at")
+    }
     updates["updated_at"] = func.now()
     connection.execute(statement.on_conflict_do_update(index_elements=key, set_=updates))
 
@@ -258,13 +277,22 @@ def _run_row(run_manifest: dict) -> dict:
 
 def _write(engine: Engine, run_row: dict, parcel_rows: list[dict], scenes: list[dict], observations: list[dict],
            create_tables: bool) -> dict[str, int]:  # fmt: skip
+    """scenes: ledger rows (item metadata plus this run's selected/rejection_reason)."""
+    metadata_rows = [{k: v for k, v in row.items() if k in scene.c} for row in scenes]
+    decisions = [
+        {"run_id": run_row["run_id"], "item_id": row["item_id"], "selected": row["selected"],
+         "rejection_reason": row["rejection_reason"]}
+        for row in scenes
+    ]  # fmt: skip
     prepare(engine, create_tables)
     with engine.begin() as connection:  # one transaction: all or nothing
         _check_parcels(connection, target_schema(engine), parcel_rows)
         _upsert(connection, ndwi_run, [run_row])
         _upsert(connection, parcel, parcel_rows)
         for chunk in range(0, len(scenes), 500):
-            _upsert(connection, scene, scenes[chunk : chunk + 500])
+            # another run may know more about an item (e.g. it rejected it before parsing); keep that
+            _upsert(connection, scene, metadata_rows[chunk : chunk + 500], keep_known=True)
+            _upsert(connection, run_scene, decisions[chunk : chunk + 500])
         for chunk in range(0, len(observations), 500):
             _upsert(connection, observation, observations[chunk : chunk + 500])
     return {"runs": 1, "parcels": len(parcel_rows), "scenes": len(scenes), "observations": len(observations)}
@@ -277,7 +305,6 @@ def write_run(result: RunResult, engine: Engine, create_tables: bool = False) ->
         {
             **{column: row.get(column) for column in SCENE_COLUMNS},
             "acquired_at": datetime.fromisoformat(row["acquired_at"]) if row["acquired_at"] else None,
-            "run_id": result.run_id,
         }
         for row in scene_rows(result)
     ]
@@ -318,11 +345,26 @@ def run_dir_rows(run_dir: Path) -> tuple[dict, list[dict], list[dict], list[dict
     crs = f"EPSG:{crs_name.rsplit(':', 1)[1]}" if crs_name else run_manifest["config"]["target_crs"]
     parcel_rows = [_parcel_row(f["properties"], shape(f["geometry"]), crs) for f in collection["features"]]
 
-    def csv_rows(name: str, table: Table) -> list[dict]:
+    def csv_rows(name: str, *tables: Table) -> list[dict]:
         with open(run_dir / name, newline="") as handle:
-            return [_typed(table, row) | {"run_id": run_manifest["run_id"]} for row in csv.DictReader(handle)]
+            return [
+                {k: v for table in tables for k, v in _typed(table, row).items()} | {"run_id": run_manifest["run_id"]}
+                for row in csv.DictReader(handle)
+            ]
 
-    return _run_row(run_manifest), parcel_rows, csv_rows("scenes.csv", scene), csv_rows("observations.csv", observation)
+    scenes = csv_rows("scenes.csv", scene, run_scene)
+    for row in scenes:  # run folders written before blue_href was recorded
+        row.setdefault("blue_href", None)
+    # Run folders written before the thresholds were part of the key: derive it from the manifest.
+    params = run_manifest.get("method_params_sha256") or method_params_digest(run_manifest["config"])
+    observations = [
+        row | {
+            "method_params_sha256": params,
+            "observation_id": observation_id(row["parcel_id"], row["item_id"], row["method_version"], params),
+        }
+        for row in csv_rows("observations.csv", observation)
+    ]  # fmt: skip
+    return _run_row(run_manifest), parcel_rows, scenes, observations
 
 
 def export_run_dir(run_dir: Path, engine: Engine, create_tables: bool = False) -> dict[str, int]:

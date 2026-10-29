@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from iris_ndwi.interpret import Obs, interpret
+from iris_ndwi.interpret import Obs, interpret, seasonal_check
 
 
 def obs(year, month, day, value, status="accepted", reason=None):
@@ -59,3 +59,12 @@ def test_no_accepted_observations():
 
 def test_deterministic():
     assert interpret(SERIES) == interpret(list(reversed(SERIES)))
+
+
+def test_seasonal_check_flags_values_outside_the_usual_monthly_range():
+    accepted = [o for o in SERIES if o.status == "accepted"]
+    check = seasonal_check(accepted)
+    assert (check.position, check.n) == ("above", 3) and check.latest.acquired_at.month == 7
+    drier = [*accepted, obs(2026, 7, 14, -0.70)]
+    assert seasonal_check(drier).position == "below"
+    assert seasonal_check(accepted[:2]).position is None  # too few earlier July values

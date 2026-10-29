@@ -1,6 +1,7 @@
 """iris_staging writer. Unit checks run always; the PostGIS round trip needs
 IRIS_TEST_DATABASE_URL (provided by `docker compose run --rm tests`)."""
 
+import csv
 import json
 import os
 import shutil
@@ -56,6 +57,25 @@ def test_run_dir_rows_are_typed(config, tmp_path):
     assert isinstance(row["acquired_at"], datetime) and row["run_id"] == result.run_id
     assert all(isinstance(r["selected"], bool) for r in scenes)
     assert any(r["ndwi_median"] is None for r in observations)  # rejected: empty cell -> NULL
+    assert {r["observation_id"] for r in observations} == {o.observation_id for o in result.observations}
+
+
+def test_run_dir_rows_derive_the_threshold_digest_for_older_run_folders(config, tmp_path):
+    """Run folders written before method_params_sha256 existed get the same key a new run would."""
+    result, run_dir = run_and_write(config.model_copy(update={"start_date": date(2025, 5, 1)}), tmp_path, SyntheticSource())
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    del manifest["method_params_sha256"]
+    (run_dir / "manifest.json").write_text(json.dumps(manifest))
+    with open(run_dir / "observations.csv", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    old_columns = [c for c in rows[0] if c != "method_params_sha256"]
+    with open(run_dir / "observations.csv", "w", newline="") as handle:
+        writer = csv.DictWriter(handle, old_columns, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows({**r, "observation_id": r["observation_id"].rsplit(":", 1)[0]} for r in rows)
+    observations = run_dir_rows(run_dir)[3]
+    assert {r["observation_id"] for r in observations} == {o.observation_id for o in result.observations}
+    assert {r["method_params_sha256"] for r in observations} == {result.method_params_sha256}
 
 
 def test_run_dir_rows_reproject_other_utm_zones_to_25832(config, tmp_path):
@@ -96,7 +116,7 @@ def test_export_run_dir_creates_tables_in_its_own_schema(config, tmp_path):
             staging = connection.execute(  # nothing leaked into the staging schema
                 text(f"SELECT count(*) FROM information_schema.tables WHERE table_schema = '{schema}'")
             ).scalar()
-        assert n == first["observations"] > 0 and (srid, valid) == (25832, True) and staging == 4
+        assert n == first["observations"] > 0 and (srid, valid) == (25832, True) and staging == 5
 
         moved = tmp_path / "moved"
         shutil.copytree(run_dir, moved)
@@ -122,16 +142,42 @@ def test_round_trip_and_idempotent_upsert(boxes_only_config):
 
     engine = create_engine(url)
     result = run_pipeline(boxes_only_config, SyntheticSource(), load_parcels(boxes_only_config))
+    stricter_config = boxes_only_config.model_copy(update={"max_blue_reflectance": 0.10, "max_scene_cloud_pct": 30})
+    stricter = run_pipeline(stricter_config, SyntheticSource(), load_parcels(stricter_config))
     try:
         first = write_run(result, engine)
         second = write_run(result, engine)  # same ids -> update, not duplicate
         assert first == second
         check_round_trip(engine, result)
+
+        # Other thresholds: rows are added next to the first run's, which stay untouched,
+        # and each run keeps its own scene decisions.
+        write_run(stricter, engine)
+        check_round_trip(engine, result)
+        check_round_trip(engine, stricter)
+        with engine.connect() as connection:
+            decisions = dict(connection.execute(
+                text(f"SELECT run_id, count(*) FILTER (WHERE selected) FROM {STAGING_SCHEMA}.s2_ndwi_run_scene "
+                     "WHERE run_id IN (:a, :b) GROUP BY run_id"),
+                {"a": result.run_id, "b": stricter.run_id},
+            ).all())  # fmt: skip
+            blue = connection.execute(
+                text(f"SELECT count(*) FROM {STAGING_SCHEMA}.s2_scene WHERE item_id = ANY(:ids) AND blue_href IS NULL"),
+                {"ids": [s.item_id for s in result.scenes]},
+            ).scalar()
+        assert decisions == {result.run_id: len(result.scenes), stricter.run_id: len(stricter.scenes)}
+        assert len(stricter.scenes) < len(result.scenes) and blue == 0
     finally:
         # leave the shared staging database exactly as real runs left it
+        runs = {"runs": [result.run_id, stricter.run_id]}
         with engine.begin() as connection:
-            for table in ("s2_ndwi_observation", "s2_scene", "s2_ndwi_run"):
-                connection.execute(text(f"DELETE FROM {STAGING_SCHEMA}.{table} WHERE run_id = :r"), {"r": result.run_id})
+            for table in ("s2_ndwi_observation", "s2_ndwi_run_scene"):
+                connection.execute(text(f"DELETE FROM {STAGING_SCHEMA}.{table} WHERE run_id = ANY(:runs)"), runs)
+            connection.execute(
+                text(f"DELETE FROM {STAGING_SCHEMA}.s2_scene s WHERE item_id LIKE 'SYNTHETIC\\_%' AND NOT EXISTS "
+                     f"(SELECT 1 FROM {STAGING_SCHEMA}.s2_ndwi_run_scene d WHERE d.item_id = s.item_id)")
+            )  # fmt: skip
+            connection.execute(text(f"DELETE FROM {STAGING_SCHEMA}.s2_ndwi_run WHERE run_id = ANY(:runs)"), runs)
 
 
 def check_round_trip(engine, result):

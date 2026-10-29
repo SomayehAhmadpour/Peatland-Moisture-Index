@@ -30,6 +30,38 @@ class Note:
     text: str
 
 
+@dataclass(frozen=True)
+class SeasonalCheck:
+    """The latest accepted value against the same calendar month in other years."""
+
+    latest: Obs
+    n: int  # accepted observations of that month in other years
+    position: str | None = None  # above | within | below; None when n < MIN_SEASONAL_SAMPLES
+    q1: float | None = None
+    q3: float | None = None
+    median: float | None = None
+
+
+def seasonal_check(accepted: list[Obs]) -> SeasonalCheck:
+    """Compare the last of `accepted` (sorted by time, all with a median) with its month in other years.
+
+    Comparing within a calendar month removes most of the seasonal cycle of
+    vegetation and sun angle, so "below" flags a parcel that is drier than usual
+    for the time of year, not merely drier than in summer.
+    """
+    latest = accepted[-1]
+    same_month = [
+        o.ndwi_median
+        for o in accepted
+        if o.acquired_at.month == latest.acquired_at.month and o.acquired_at.year != latest.acquired_at.year
+    ]
+    if len(same_month) < MIN_SEASONAL_SAMPLES:
+        return SeasonalCheck(latest, len(same_month))
+    q1, _, q3 = quantiles(same_month, n=4, method="inclusive")
+    position = "above" if latest.ndwi_median > q3 else "below" if latest.ndwi_median < q1 else "within"
+    return SeasonalCheck(latest, len(same_month), position, q1, q3, median(same_month))
+
+
 def interpret(observations: list[Obs], as_of: datetime | None = None) -> list[Note]:
     """Notes for one parcel. `as_of` limits the series to observations up to that time."""
     series = sorted(
@@ -60,27 +92,19 @@ def interpret(observations: list[Obs], as_of: datetime | None = None) -> list[No
             )
         )
 
-    same_month = [
-        o.ndwi_median
-        for o in accepted
-        if o.acquired_at.month == latest.acquired_at.month and o.acquired_at.year != latest.acquired_at.year
-    ]
+    check = seasonal_check(accepted)
     month = f"{latest.acquired_at:%B}"
-    if len(same_month) >= MIN_SEASONAL_SAMPLES:
-        q1, _, q3 = quantiles(same_month, n=4, method="inclusive")
-        position = (
-            "above" if latest.ndwi_median > q3 else "below" if latest.ndwi_median < q1 else "within"
-        )
+    if check.position:
         notes.append(
             Note(
                 "info",
-                f"{position.capitalize()} the typical {month} range of other years "
-                f"(interquartile {q1:.3f} to {q3:.3f}, median {median(same_month):.3f}, n={len(same_month)}).",
+                f"{check.position.capitalize()} the typical {month} range of other years "
+                f"(interquartile {check.q1:.3f} to {check.q3:.3f}, median {check.median:.3f}, n={check.n}).",
             )
         )
     else:
         notes.append(
-            Note("warning", f"Only {len(same_month)} accepted {month} observation(s) in other years: no seasonal comparison.")
+            Note("warning", f"Only {check.n} accepted {month} observation(s) in other years: no seasonal comparison.")
         )
 
     newer_rejected = [o for o in series if o.acquired_at > latest.acquired_at and o.status == "rejected"]

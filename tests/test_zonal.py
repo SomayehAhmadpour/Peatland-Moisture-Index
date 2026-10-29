@@ -14,7 +14,8 @@ def run(values, status, inside=None, min_valid_fraction=0.8, water_threshold=0.0
     status = np.array(status, dtype=np.uint8)
     inside = np.ones(values.shape, bool) if inside is None else np.array(inside, bool)
     return summarize(
-        parcel_id="p", item_id="i", acquired_at=WHEN, method_version="m", inside=inside, values=values,
+        parcel_id="p", item_id="i", acquired_at=WHEN, method_version="m", method_params_sha256="0123456789abcdef",
+        inside=inside, values=values,
         status=status, min_valid_fraction=min_valid_fraction, water_threshold=water_threshold,
     )  # fmt: skip
 
@@ -67,4 +68,4 @@ def test_counts_add_up():
 
 
 def test_stable_observation_id():
-    assert run([[-0.4]], [[V]]).observation_id == "p:i:m"
+    assert run([[-0.4]], [[V]]).observation_id == "p:i:m:01234567"

@@ -23,6 +23,18 @@ log = logging.getLogger(__name__)
 # Read margin around the parcels, in metres (scene CRS).
 READ_BUFFER_M = 20
 
+# Config keys that change an observation's values or its acceptance. The period,
+# collections and tile only decide which scenes are read; the scene is in the key anyway.
+METHOD_PARAMS = (
+    "target_crs",
+    "valid_scl_classes",
+    "max_blue_reflectance",
+    "require_positive_reflectance",
+    "max_below_offset_fraction",
+    "min_valid_fraction",
+    "water_threshold",
+)
+
 
 class SceneQualityError(RuntimeError):
     """A scene that was read but fails a scene-level quality check."""
@@ -35,6 +47,7 @@ class RunResult:
     finished_at: datetime | None
     config: PipelineConfig
     config_sha256: str
+    method_params_sha256: str
     source_name: str
     parcels: list[Parcel]
     n_items_found: int = 0
@@ -49,7 +62,15 @@ def config_digest(config: PipelineConfig) -> str:
     return hashlib.sha256(payload.encode()).hexdigest()
 
 
-def process_scene(source: SceneSource, scene: Scene, parcels: list[Parcel], config: PipelineConfig) -> list[ParcelObservation]:
+def method_params_digest(config: dict) -> str:
+    """SHA-256 of the method thresholds; takes config.model_dump(mode="json") or a manifest's config."""
+    payload = json.dumps({key: config.get(key) for key in METHOD_PARAMS}, sort_keys=True)
+    return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def process_scene(
+    source: SceneSource, scene: Scene, parcels: list[Parcel], config: PipelineConfig, params_digest: str
+) -> list[ParcelObservation]:
     """Read one scene once for all parcels and summarise each parcel."""
     in_scene_crs = {p.parcel_id: reproject(p.geometry, p.crs, scene.crs) for p in parcels}
     bounds = unary_union(list(in_scene_crs.values())).buffer(READ_BUFFER_M).bounds
@@ -83,6 +104,7 @@ def process_scene(source: SceneSource, scene: Scene, parcels: list[Parcel], conf
             item_id=scene.item_id,
             acquired_at=scene.acquired_at,
             method_version=METHOD_VERSION,
+            method_params_sha256=params_digest,
             inside=parcel_pixel_mask(in_scene_crs[parcel.parcel_id], values.shape, window.transform),
             values=values,
             status=status,
@@ -108,12 +130,14 @@ def run_pipeline(config: PipelineConfig, source: SceneSource, parcels: list[Parc
         config = config.model_copy(update={"mgrs_tile": tile})  # recorded in the manifest
 
     digest = config_digest(config)
+    params_digest = method_params_digest(config.model_dump(mode="json"))
     result = RunResult(
         run_id=f"{started_at:%Y%m%dT%H%M%SZ}-{digest[:8]}",
         started_at=started_at,
         finished_at=None,
         config=config,
         config_sha256=digest,
+        method_params_sha256=params_digest,
         source_name=source.name,
         parcels=parcels,
         n_items_found=len(items),
@@ -125,20 +149,23 @@ def run_pipeline(config: PipelineConfig, source: SceneSource, parcels: list[Parc
 
     def work(scene: Scene) -> tuple[Scene, list[ParcelObservation] | None, str | None]:
         try:
-            return scene, process_scene(source, scene, parcels, config), None
+            return scene, process_scene(source, scene, parcels, config, params_digest), None
         except SourceError as exc:
             log.warning("read failed: %s", exc)
             return scene, None, f"read_error: {exc}"
         except SceneQualityError as exc:
             log.warning("%s: %s", scene.item_id, exc)
             return scene, None, str(exc)
+        except Exception as exc:  # one bad scene must not lose a multi-year run; recorded in the ledger
+            log.exception("%s: unexpected error", scene.item_id)
+            return scene, None, f"processing_error: {type(exc).__name__}: {exc}"
 
     with ThreadPoolExecutor(max_workers=config.max_workers) as pool:
         outcomes = list(pool.map(work, selected))
 
     for scene, observations, error in outcomes:  # pool.map keeps input order
         if error:
-            rejected.append(SceneRejection(scene.item_id, scene.acquired_at, error))
+            rejected.append(SceneRejection(scene.item_id, scene.acquired_at, error, scene))
             continue
         result.scenes.append(scene)
         result.observations.extend(observations)

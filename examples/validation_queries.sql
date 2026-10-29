@@ -2,19 +2,22 @@
 -- staging container, e.g.:
 --   docker compose exec staging-db psql -U iris_staging -d iris_staging_db -f /dev/stdin < examples/validation_queries.sql
 
--- 1. Every processed or rejected scene is in the ledger, with a reason when rejected (real scenes only;
---    synthetic scene ids start with SYNTHETIC_).
-SELECT selected, split_part(coalesce(rejection_reason, 'selected'), ':', 1) AS reason, count(*)
-FROM iris_staging.s2_scene
-WHERE item_id NOT LIKE 'SYNTHETIC\_%'
-GROUP BY 1, 2
-ORDER BY 1 DESC, 3 DESC;
-
--- 2. No duplicate acquisitions survive selection (platform + tile + UTC day), real scenes only.
-SELECT platform, mgrs_tile, acquired_at::date AS day, count(*)
-FROM iris_staging.s2_scene
-WHERE selected AND item_id NOT LIKE 'SYNTHETIC\_%'
+-- 1. Every processed or rejected scene is in each run's ledger, with a reason when rejected
+--    (real runs only; synthetic scene ids also start with SYNTHETIC_).
+SELECT d.run_id, d.selected, split_part(coalesce(d.rejection_reason, 'selected'), ':', 1) AS reason, count(*)
+FROM iris_staging.s2_ndwi_run_scene d
+JOIN iris_staging.s2_ndwi_run r USING (run_id)
+WHERE NOT r.synthetic_data
 GROUP BY 1, 2, 3
+ORDER BY 1, 2 DESC, 4 DESC;
+
+-- 2. No duplicate acquisitions survive selection within a run (platform + tile + UTC day), real runs only.
+SELECT d.run_id, s.platform, s.mgrs_tile, s.acquired_at::date AS day, count(*)
+FROM iris_staging.s2_ndwi_run_scene d
+JOIN iris_staging.s2_scene s USING (item_id)
+JOIN iris_staging.s2_ndwi_run r USING (run_id)
+WHERE d.selected AND NOT r.synthetic_data
+GROUP BY 1, 2, 3, 4
 HAVING count(*) > 1;                                   -- expect 0 rows
 
 -- 3. Parcel geometries are valid, in EPSG:25832, with plausible areas.
@@ -50,10 +53,19 @@ ORDER BY 1, 2;
 
 -- 7. Provenance of one observation: from result back to the exact COG files.
 SELECT o.observation_id, o.ndwi_median, s.collection, s.processing_baseline, s.boa_offset_applied_flag,
-       s.boa_offset, s.green_href, s.nir_href, s.scl_href, r.config_sha256
+       s.boa_offset, s.blue_href, s.green_href, s.nir_href, s.scl_href, r.config_sha256, o.method_params_sha256
 FROM iris_staging.s2_ndwi_observation o
 JOIN iris_staging.s2_scene s USING (item_id)
 JOIN iris_staging.s2_ndwi_run r ON r.run_id = o.run_id
 WHERE o.parcel_id = 'wr-core-100m' AND o.status = 'accepted' AND NOT r.synthetic_data
 ORDER BY o.acquired_at DESC
 LIMIT 1;
+
+-- 8. Results produced under different thresholds sit side by side instead of overwriting each other:
+--    observations per parcel and threshold set (method_params_sha256), with the runs that wrote them.
+SELECT parcel_id, method_version, left(method_params_sha256, 8) AS params, count(*) AS observations,
+       count(*) FILTER (WHERE status = 'accepted') AS accepted, count(DISTINCT run_id) AS runs
+FROM iris_staging.s2_ndwi_observation
+WHERE item_id NOT LIKE 'SYNTHETIC\_%'
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3;
