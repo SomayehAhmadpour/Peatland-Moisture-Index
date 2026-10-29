@@ -1,0 +1,53 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::25830"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "parcel_id": "point-53p63200n-0p90500w-100m",
+    "name": "Thorne Moors (JNCC check)",
+    "kind": "point",
+    "source": "config",
+    "source_ref": "box:53.632000,-0.905000;100m",
+    "licence": "n/a (derived from configured coordinates)",
+    "area_m2": 10000.0,
+    "geometry_repaired": false
+   },
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        638580.0,
+        5944570.0
+       ],
+       [
+        638580.0,
+        5944670.0
+       ],
+       [
+        638480.0,
+        5944670.0
+       ],
+       [
+        638480.0,
+        5944570.0
+       ],
+       [
+        638580.0,
+        5944570.0
+       ]
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

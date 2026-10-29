@@ -1,0 +1,53 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::32613"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "parcel_id": "point-48p76884n-102p94572w-20m",
+    "name": "P1-pond",
+    "kind": "point",
+    "source": "config",
+    "source_ref": "box:48.768840,-102.945720;20m",
+    "licence": "n/a (derived from configured coordinates)",
+    "area_m2": 400.0,
+    "geometry_repaired": false
+   },
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        650960.0,
+        5403780.0
+       ],
+       [
+        650960.0,
+        5403800.0
+       ],
+       [
+        650940.0,
+        5403800.0
+       ],
+       [
+        650940.0,
+        5403780.0
+       ],
+       [
+        650960.0,
+        5403780.0
+       ]
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}

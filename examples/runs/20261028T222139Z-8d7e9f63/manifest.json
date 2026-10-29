@@ -1,0 +1,78 @@
+{
+  "run_id": "20261028T222139Z-8d7e9f63",
+  "started_at": "2026-10-28T22:21:39.867301+00:00",
+  "finished_at": "2026-10-28T22:22:47.426522+00:00",
+  "method_version": "ndwi-mcfeeters-b03b08-v1",
+  "source": "stac",
+  "synthetic_data": false,
+  "stac_url": "https://earth-search.aws.element84.com/v1",
+  "collections": [
+    "sentinel-2-c1-l2a",
+    "sentinel-2-l2a"
+  ],
+  "config": {
+    "study_area": "P1-pond (48.76884, -102.94572)",
+    "stac_url": "https://earth-search.aws.element84.com/v1",
+    "collections": [
+      "sentinel-2-c1-l2a",
+      "sentinel-2-l2a"
+    ],
+    "mgrs_tile": "13UFQ",
+    "start_date": "2017-01-01",
+    "end_date": "2018-12-31",
+    "target_crs": "EPSG:32613",
+    "max_scene_cloud_pct": 80.0,
+    "min_valid_fraction": 0.8,
+    "valid_scl_classes": [
+      4,
+      5,
+      6
+    ],
+    "require_positive_reflectance": true,
+    "water_threshold": 0.0,
+    "max_blue_reflectance": 0.12,
+    "max_below_offset_fraction": 0.5,
+    "parcels_geojson": null,
+    "boxes": [
+      {
+        "parcel_id": "point-48p76884n-102p94572w-20m",
+        "name": "P1-pond",
+        "kind": "point",
+        "center_lat": 48.76884,
+        "center_lon": -102.94572,
+        "size_m": 20.0,
+        "snap_m": 10.0
+      }
+    ],
+    "areas": [],
+    "output_dir": "output",
+    "max_workers": 8
+  },
+  "config_sha256": "8d7e9f63d58714ac920743e1f75f03d736aba0b15af738bd6fba626bdda73f4f",
+  "valid_scl_classes": {
+    "4": "vegetation",
+    "5": "not_vegetated",
+    "6": "water"
+  },
+  "counts": {
+    "items_found": 128,
+    "scenes_processed": 62,
+    "scenes_rejected": 66,
+    "observations": 62,
+    "observations_accepted": 10
+  },
+  "licences": {
+    "imagery": "Copernicus Sentinel data, free and open (Sentinel data legal notice); contains modified Copernicus Sentinel data",
+    "parcels": [
+      "n/a (derived from configured coordinates)"
+    ]
+  },
+  "software": {
+    "python": "3.12.14",
+    "numpy": "2.2.3",
+    "rasterio": "1.5.1",
+    "shapely": "2.0.7",
+    "pyproj": "3.7.1",
+    "pystac-client": "0.8.6"
+  }
+}

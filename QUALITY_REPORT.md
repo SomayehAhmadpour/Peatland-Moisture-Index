@@ -124,6 +124,10 @@ detected at 10 m. The big bog polygon does show it in 91 of 112 accepted scenes,
   legacy ones, so there is no direct comparison for that year. The 2021 and 2023 matches share processing
   lineage with C1 (05.00/05.09), so they validate the offset handling, not independent radiometry. The
   2022 summer values sit within the range of neighbouring years.
+- **Independent check at other sites.** Against the JNCC Sentinel-2 NDWI product (different atmospheric
+  correction and code), a peat bog in England agrees over 2019–2023: mean difference +0.011, RMSE 0.040,
+  131 of 131 dates within ±0.10. Over a lake our NDWI is about 0.24 higher and dark-water pixels are often
+  invalid after the −0.1 offset. Details and two paper comparisons: README, *Evaluation*.
 - **What NDWI measures here.** Green/NIR NDWI reflects surface wetness and canopy state, not soil moisture.
   There is no field data to calibrate against. NDMI (B08/B11) would be the natural companion index.
 - **Thresholds.** The 0.12 blue threshold and the 0.5 guard were set from this site's data and could

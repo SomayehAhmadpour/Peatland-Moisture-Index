@@ -1,0 +1,9 @@
+processing,pixels,n,n_reflectance_not_positive,min,p5,median,p95,max,share_negative
+original (baseline 02.11),"shoreline, both sides",1360,0,-0.708,-0.523,-0.161,0.269,0.62,0.757
+original (baseline 02.11),"shoreline, water side",679,0,-0.627,-0.371,-0.01,0.333,0.62,0.515
+original (baseline 02.11),"shoreline, land side",681,0,-0.708,-0.563,-0.292,-0.098,0.003,0.999
+original (baseline 02.11),open water (>= 30 m from shore),33631,0,-0.051,0.719,0.986,0.993,0.996,0.0
+reprocessed (baseline 05.00),"shoreline, both sides",1360,0,-0.698,-0.534,-0.183,0.379,0.723,0.718
+reprocessed (baseline 05.00),"shoreline, water side",679,0,-0.656,-0.381,-0.034,0.47,0.723,0.52
+reprocessed (baseline 05.00),"shoreline, land side",681,0,-0.698,-0.564,-0.314,0.058,0.439,0.915
+reprocessed (baseline 05.00),open water (>= 30 m from shore),33631,21186,-0.133,0.556,0.929,0.991,0.996,0.0

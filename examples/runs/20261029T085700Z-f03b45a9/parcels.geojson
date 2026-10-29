@@ -1,0 +1,53 @@
+{
+ "type": "FeatureCollection",
+ "crs": {
+  "type": "name",
+  "properties": {
+   "name": "urn:ogc:def:crs:EPSG::25830"
+  }
+ },
+ "features": [
+  {
+   "type": "Feature",
+   "properties": {
+    "parcel_id": "point-53p90400n-0p19000w-100m",
+    "name": "Hornsea Mere (JNCC check)",
+    "kind": "point",
+    "source": "config",
+    "source_ref": "box:53.904000,-0.190000;100m",
+    "licence": "n/a (derived from configured coordinates)",
+    "area_m2": 10000.0,
+    "geometry_repaired": false
+   },
+   "geometry": {
+    "type": "MultiPolygon",
+    "coordinates": [
+     [
+      [
+       [
+        684650.0,
+        5976450.0
+       ],
+       [
+        684650.0,
+        5976550.0
+       ],
+       [
+        684550.0,
+        5976550.0
+       ],
+       [
+        684550.0,
+        5976450.0
+       ],
+       [
+        684650.0,
+        5976450.0
+       ]
+      ]
+     ]
+    ]
+   }
+  }
+ ]
+}
