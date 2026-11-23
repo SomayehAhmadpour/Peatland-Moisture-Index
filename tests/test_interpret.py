@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from iris_ndwi.interpret import Obs, interpret, seasonal_check
+from peat_ndwi.interpret import Obs, interpret, seasonal_check
 
 
 def obs(year, month, day, value, status="accepted", reason=None):

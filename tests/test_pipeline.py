@@ -6,11 +6,11 @@ from datetime import date
 
 import pytest
 
-from iris_ndwi.outputs import write_outputs
-from iris_ndwi.parcels import load_parcels
-from iris_ndwi.pipeline import run_pipeline
-from iris_ndwi.report import quality_summary
-from iris_ndwi.synthetic import ID_PREFIX, SCENARIOS, Scenario, SyntheticSource
+from peat_ndwi.outputs import write_outputs
+from peat_ndwi.parcels import load_parcels
+from peat_ndwi.pipeline import run_pipeline
+from peat_ndwi.report import quality_summary
+from peat_ndwi.synthetic import ID_PREFIX, SCENARIOS, Scenario, SyntheticSource
 
 
 @pytest.fixture

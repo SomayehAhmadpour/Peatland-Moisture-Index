@@ -36,7 +36,7 @@ OUTPUT = Path(__file__).resolve().parent.parent / "data" / "parcels" / "wurzache
 def fetch() -> dict:
     data = urllib.parse.urlencode({"data": QUERY}).encode()
     request = urllib.request.Request(
-        OVERPASS_URL, data=data, headers={"User-Agent": "iris-ndwi/0.1"}
+        OVERPASS_URL, data=data, headers={"User-Agent": "peat-ndwi/0.1"}
     )
     with urllib.request.urlopen(request, timeout=120) as response:
         return json.load(response)

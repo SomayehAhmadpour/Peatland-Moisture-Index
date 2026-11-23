@@ -3,8 +3,8 @@ from datetime import datetime, timezone
 import numpy as np
 import pytest
 
-from iris_ndwi.ndwi import PixelStatus
-from iris_ndwi.zonal import summarize
+from peat_ndwi.ndwi import PixelStatus
+from peat_ndwi.zonal import summarize
 
 WHEN = datetime(2024, 7, 1, tzinfo=timezone.utc)
 

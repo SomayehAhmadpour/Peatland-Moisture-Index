@@ -1,6 +1,6 @@
-"""create iris_staging NDWI tables
+"""create ndwi_staging NDWI tables
 
-Revision ID: 0001_iris_staging_ndwi
+Revision ID: 0001_ndwi_staging
 Revises:
 Create Date: 2026-10-27
 """
@@ -12,12 +12,12 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0001_iris_staging_ndwi"
+revision: str = "0001_ndwi_staging"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-SCHEMA = "iris_staging"
+SCHEMA = "ndwi_staging"
 
 
 def _audit() -> list[sa.Column]:

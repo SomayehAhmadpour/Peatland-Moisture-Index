@@ -3,7 +3,7 @@ import copy
 import pytest
 from shapely.geometry import box, mapping
 
-from iris_ndwi.scenes import SceneMetadataError, aoi_coverage, parse_item, select_scenes
+from peat_ndwi.scenes import SceneMetadataError, aoi_coverage, parse_item, select_scenes
 
 
 def by_id(items, item_id):

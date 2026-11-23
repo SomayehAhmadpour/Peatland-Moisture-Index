@@ -1,13 +1,13 @@
-"""Alembic environment for the iris_staging schema only.
+"""Alembic environment for the ndwi_staging schema only.
 
-The version table lives in iris_staging too, so migrations never touch
-iris_core or public.
+The version table lives in ndwi_staging too, so migrations never touch
+public or any other schema.
 """
 
 from alembic import context
 from sqlalchemy import text
 
-from iris_ndwi.staging import STAGING_SCHEMA, engine_from_env, metadata
+from peat_ndwi.staging import STAGING_SCHEMA, engine_from_env, metadata
 
 
 def run_migrations_offline() -> None:

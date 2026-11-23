@@ -8,7 +8,7 @@
 - s2_scene gets blue_href (B02 is read for the fog/haze test).
 
 Revision ID: 0002_run_scene_method_params
-Revises: 0001_iris_staging_ndwi
+Revises: 0001_ndwi_staging
 Create Date: 2026-10-29
 """
 
@@ -20,13 +20,13 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "0002_run_scene_method_params"
-down_revision: Union[str, Sequence[str], None] = "0001_iris_staging_ndwi"
+down_revision: Union[str, Sequence[str], None] = "0001_ndwi_staging"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-SCHEMA = "iris_staging"
+SCHEMA = "ndwi_staging"
 
-# Frozen copy of iris_ndwi.pipeline.METHOD_PARAMS at this revision (migrations must not change later).
+# Frozen copy of peat_ndwi.pipeline.METHOD_PARAMS at this revision (migrations must not change later).
 METHOD_PARAMS = (
     "target_crs",
     "valid_scl_classes",

@@ -12,7 +12,7 @@ from rasterio.errors import NotGeoreferencedWarning
 from rasterio.features import geometry_mask
 from shapely.geometry.base import BaseGeometry
 
-from iris_ndwi.ndwi import PixelStatus
+from peat_ndwi.ndwi import PixelStatus
 
 # rasterio 1.4 warns from its internal in-memory rasterize dataset even though
 # the explicit transform is applied (pixel counts are verified in tests).

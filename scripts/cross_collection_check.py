@@ -16,10 +16,10 @@ from datetime import date
 from pathlib import Path
 from statistics import median
 
-from iris_ndwi.config import load_config
-from iris_ndwi.parcels import load_parcels
-from iris_ndwi.pipeline import run_pipeline
-from iris_ndwi.sources import StacSource
+from peat_ndwi.config import load_config
+from peat_ndwi.parcels import load_parcels
+from peat_ndwi.pipeline import run_pipeline
+from peat_ndwi.sources import StacSource
 
 ROOT = Path(__file__).resolve().parent.parent
 

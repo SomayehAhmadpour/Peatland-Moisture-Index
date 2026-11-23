@@ -1,7 +1,7 @@
 [project]
-name = "iris-ndwi"
+name = "peat-ndwi"
 version = "0.1.0"
-description = "IRIS-SAT-NDWI: Sentinel-2 green/NIR NDWI monitoring for peatland parcels (Wurzacher Ried)"
+description = "Peatland Moisture Index: Sentinel-2 green/NIR NDWI monitoring for peatland parcels (Wurzacher Ried)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -31,22 +31,22 @@ ui = [
 ]
 
 [project.scripts]
-iris-ndwi = "iris_ndwi.cli:main"
+peat-ndwi = "peat_ndwi.cli:main"
 
 [build-system]
 requires = ["hatchling==1.27.0"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/iris_ndwi"]
+packages = ["src/peat_ndwi"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = [
-    "integration: needs a running PostGIS (IRIS_TEST_DATABASE_URL) or network access",
+    "integration: needs a running PostGIS (NDWI_TEST_DATABASE_URL) or network access",
 ]
 addopts = "-m 'not integration'"
 filterwarnings = [
-    # see the note in src/iris_ndwi/zonal.py
+    # see the note in src/peat_ndwi/zonal.py
     "ignore::rasterio.errors.NotGeoreferencedWarning",
 ]

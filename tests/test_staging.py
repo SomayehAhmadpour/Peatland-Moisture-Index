@@ -1,5 +1,5 @@
-"""iris_staging writer. Unit checks run always; the PostGIS round trip needs
-IRIS_TEST_DATABASE_URL (provided by `docker compose run --rm tests`)."""
+"""ndwi_staging writer. Unit checks run always; the PostGIS round trip needs
+NDWI_TEST_DATABASE_URL (provided by `docker compose run --rm tests`)."""
 
 import csv
 import json
@@ -13,27 +13,26 @@ from geoalchemy2.shape import to_shape
 from pyproj import Transformer
 from sqlalchemy import create_engine, text
 
-from iris_ndwi.adhoc import point_config, run_and_write
-from iris_ndwi.staging import (
+from peat_ndwi.adhoc import point_config, run_and_write
+from peat_ndwi.staging import (
     STAGING_SCHEMA, StagingGuardError, check_schema_name, engine_for, engine_from_env, export_run_dir, metadata,
     run_dir_rows, target_schema, write_run,
 )  # fmt: skip
-from iris_ndwi.synthetic import SyntheticSource
+from peat_ndwi.synthetic import SyntheticSource
 
 
 def test_all_tables_live_in_staging_schema():
     assert metadata.tables
     assert {t.schema for t in metadata.tables.values()} == {STAGING_SCHEMA}
-    assert not any("iris_core" in name for name in metadata.tables)
 
 
 def test_missing_database_url_is_an_error(monkeypatch):
-    monkeypatch.delenv("IRIS_STAGING_DATABASE_URL", raising=False)
-    with pytest.raises(StagingGuardError, match="IRIS_STAGING_DATABASE_URL"):
+    monkeypatch.delenv("NDWI_DATABASE_URL", raising=False)
+    with pytest.raises(StagingGuardError, match="NDWI_DATABASE_URL"):
         engine_from_env()
 
 
-@pytest.mark.parametrize("schema", ["iris_core", "public", "pg_catalog", "information_schema", "Bad-Name", "x; drop"])
+@pytest.mark.parametrize("schema", ["public", "pg_catalog", "information_schema", "Bad-Name", "x; drop"])
 def test_protected_or_invalid_schemas_are_refused(schema):
     with pytest.raises(StagingGuardError):
         check_schema_name(schema)
@@ -95,10 +94,10 @@ def test_run_dir_rows_reproject_other_utm_zones_to_25832(config, tmp_path):
 
 @pytest.mark.integration
 def test_export_run_dir_creates_tables_in_its_own_schema(config, tmp_path):
-    url = os.environ.get("IRIS_TEST_DATABASE_URL")
+    url = os.environ.get("NDWI_TEST_DATABASE_URL")
     if not url:
-        pytest.skip("IRIS_TEST_DATABASE_URL not set")
-    schema = f"iris_export_test_{uuid.uuid4().hex[:8]}"
+        pytest.skip("NDWI_TEST_DATABASE_URL not set")
+    schema = f"ndwi_export_test_{uuid.uuid4().hex[:8]}"
     _, run_dir = run_and_write(
         point_config(config, 47.926242, 9.877493, 100, date(2021, 1, 1), date(2026, 1, 1), "Box"), tmp_path, SyntheticSource()
     )
@@ -133,12 +132,12 @@ def test_export_run_dir_creates_tables_in_its_own_schema(config, tmp_path):
 
 @pytest.mark.integration
 def test_round_trip_and_idempotent_upsert(boxes_only_config):
-    url = os.environ.get("IRIS_TEST_DATABASE_URL")
+    url = os.environ.get("NDWI_TEST_DATABASE_URL")
     if not url:
-        pytest.skip("IRIS_TEST_DATABASE_URL not set")
-    from iris_ndwi.parcels import load_parcels
-    from iris_ndwi.pipeline import run_pipeline
-    from iris_ndwi.synthetic import SyntheticSource
+        pytest.skip("NDWI_TEST_DATABASE_URL not set")
+    from peat_ndwi.parcels import load_parcels
+    from peat_ndwi.pipeline import run_pipeline
+    from peat_ndwi.synthetic import SyntheticSource
 
     engine = create_engine(url)
     result = run_pipeline(boxes_only_config, SyntheticSource(), load_parcels(boxes_only_config))

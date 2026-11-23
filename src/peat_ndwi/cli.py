@@ -1,8 +1,8 @@
 """Command line entry point.
 
-    iris-ndwi parcels --config config/wurzacher_ried.yaml
-    iris-ndwi run     --config config/wurzacher_ried.yaml [--source stac|synthetic] [--to-db]
-    iris-ndwi export  output/<run_id> [--schema my_ndwi] [--create-tables]   # URL from IRIS_STAGING_DATABASE_URL
+    peat-ndwi parcels --config config/wurzacher_ried.yaml
+    peat-ndwi run     --config config/wurzacher_ried.yaml [--source stac|synthetic] [--to-db]
+    peat-ndwi export  output/<run_id> [--schema my_ndwi] [--create-tables]   # URL from NDWI_DATABASE_URL
 """
 
 from __future__ import annotations
@@ -14,13 +14,13 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from iris_ndwi.config import load_config
-from iris_ndwi.outputs import write_outputs
-from iris_ndwi.parcels import GeometryError, load_parcels
-from iris_ndwi.pipeline import run_pipeline
-from iris_ndwi.report import quality_summary
-from iris_ndwi.sources import StacSource
-from iris_ndwi.synthetic import SyntheticSource
+from peat_ndwi.config import load_config
+from peat_ndwi.outputs import write_outputs
+from peat_ndwi.parcels import GeometryError, load_parcels
+from peat_ndwi.pipeline import run_pipeline
+from peat_ndwi.report import quality_summary
+from peat_ndwi.sources import StacSource
+from peat_ndwi.synthetic import SyntheticSource
 
 
 def cmd_parcels(args: argparse.Namespace) -> int:
@@ -52,17 +52,17 @@ def cmd_run(args: argparse.Namespace) -> int:
           f"({accepted} accepted) -> {run_dir}")  # fmt: skip
 
     if args.to_db:
-        from iris_ndwi.staging import engine_from_env, write_run
+        from peat_ndwi.staging import engine_from_env, write_run
 
         counts = write_run(result, engine_from_env())
-        print(f"iris_staging upserted: {counts}")
+        print(f"ndwi_staging upserted: {counts}")
     return 0
 
 
 def cmd_export(args: argparse.Namespace) -> int:
     from sqlalchemy.exc import SQLAlchemyError
 
-    from iris_ndwi.staging import DATABASE_URL_ENV, StagingGuardError, engine_for, export_run_dir
+    from peat_ndwi.staging import DATABASE_URL_ENV, StagingGuardError, engine_for, export_run_dir
 
     url = os.environ.get(DATABASE_URL_ENV)
     if not url:
@@ -79,7 +79,7 @@ def cmd_export(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="iris-ndwi", description="Sentinel-2 NDWI for peatland parcels")
+    parser = argparse.ArgumentParser(prog="peat-ndwi", description="Sentinel-2 NDWI for peatland parcels")
     parser.add_argument("-v", "--verbose", action="store_true")
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -93,12 +93,12 @@ def main(argv: list[str] | None = None) -> int:
     run.add_argument("--start", type=date.fromisoformat, help="override start_date (YYYY-MM-DD)")
     run.add_argument("--end", type=date.fromisoformat, help="override end_date (YYYY-MM-DD)")
     run.add_argument("--output-dir", type=Path)
-    run.add_argument("--to-db", action="store_true", help="also upsert into iris_staging")
+    run.add_argument("--to-db", action="store_true", help="also upsert into ndwi_staging")
     run.set_defaults(func=cmd_run)
 
-    export = sub.add_parser("export", help="export a run folder to a PostGIS database ($IRIS_STAGING_DATABASE_URL)")
+    export = sub.add_parser("export", help="export a run folder to a PostGIS database ($NDWI_DATABASE_URL)")
     export.add_argument("run_dir", type=Path, help="e.g. output/<run_id>")
-    export.add_argument("--schema", default="iris_staging", help="target schema (iris_core and public are refused)")
+    export.add_argument("--schema", default="ndwi_staging", help="target schema (public and system schemas are refused)")
     export.add_argument("--create-tables", action="store_true", help="create PostGIS, the schema and the tables if missing")
     export.set_defaults(func=cmd_export)
 

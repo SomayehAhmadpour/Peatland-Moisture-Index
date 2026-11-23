@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from statistics import median
 
-from iris_ndwi.interpret import Obs, seasonal_check
-from iris_ndwi.pipeline import RunResult
+from peat_ndwi.interpret import Obs, seasonal_check
+from peat_ndwi.pipeline import RunResult
 
 # Summer window used for year-to-year comparison (same phenological stage).
 COMPARISON_MONTHS = (6, 7, 8)

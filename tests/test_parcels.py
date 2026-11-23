@@ -4,8 +4,8 @@ from affine import Affine
 from conftest import ROOT
 from shapely.geometry import LineString, MultiPolygon, Point, Polygon, box
 
-from iris_ndwi.config import BoxParcel
-from iris_ndwi.parcels import (
+from peat_ndwi.config import BoxParcel
+from peat_ndwi.parcels import (
     GeometryError,
     box_parcel,
     load_geojson_parcels,
@@ -14,8 +14,8 @@ from iris_ndwi.parcels import (
     square_box,
     validate_geometry,
 )
-from iris_ndwi.sources import aligned_windows
-from iris_ndwi.zonal import parcel_pixel_mask
+from peat_ndwi.sources import aligned_windows
+from peat_ndwi.zonal import parcel_pixel_mask
 
 TILE_32UNU = Affine(10, 0, 499980, 0, -10, 5400000)
 

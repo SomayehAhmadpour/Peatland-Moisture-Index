@@ -1,16 +1,16 @@
 # Isolated staging stack: its own PostGIS container and volume. Nothing here
-# connects to iris_core or any production database.
+# connects to any other database.
 #
 #   cp .env.example .env
 #   docker compose run --rm tests                 # unit + PostGIS integration tests
-#   docker compose run --rm pipeline              # live Sentinel-2 run -> output/ + iris_staging
+#   docker compose run --rm pipeline              # live Sentinel-2 run -> output/ + ndwi_staging
 #   docker compose run --rm pipeline run --config config/wurzacher_ried.yaml --source synthetic --to-db
 #   docker compose up ui                          # dashboard on http://localhost:8501
 
 services:
   staging-db:
     image: postgis/postgis:17-3.5
-    # The official PostGIS image (same as iris-sample) is published for amd64 only;
+    # The official PostGIS image is published for amd64 only;
     # Apple Silicon runs it through emulation (Docker Desktop: automatic; Colima: start with --vz-rosetta).
     platform: linux/amd64
     environment:
@@ -29,21 +29,21 @@ services:
 
   migrate:
     build: .
-    image: iris-ndwi:local   # one image shared by all services
+    image: peat-ndwi:local   # one image shared by all services
     entrypoint: ["alembic", "upgrade", "head"]
     command: []
     environment:
-      IRIS_STAGING_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
+      NDWI_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
     depends_on:
       staging-db:
         condition: service_healthy
 
   pipeline:
     build: .
-    image: iris-ndwi:local   # one image shared by all services
+    image: peat-ndwi:local   # one image shared by all services
     command: ["run", "--config", "config/wurzacher_ried.yaml", "--to-db"]
     environment:
-      IRIS_STAGING_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
+      NDWI_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
     volumes:
       - ./output:/app/output
     depends_on:
@@ -52,11 +52,11 @@ services:
 
   ui:
     build: .
-    image: iris-ndwi:local   # one image shared by all services
+    image: peat-ndwi:local   # one image shared by all services
     entrypoint: ["streamlit", "run", "ui/app.py", "--server.address=0.0.0.0", "--server.port=8501", "--server.headless=true"]
     command: []
     environment:   # default target of "Export to PostGIS" when its URL field is left empty
-      IRIS_STAGING_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
+      NDWI_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
     ports:
       - "127.0.0.1:8501:8501"
     volumes:
@@ -64,12 +64,12 @@ services:
 
   tests:
     build: .
-    image: iris-ndwi:local   # one image shared by all services
+    image: peat-ndwi:local   # one image shared by all services
     entrypoint: ["pytest", "-m", "", "-q", "-p", "no:cacheprovider"]
     command: []
     environment:
-      IRIS_STAGING_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
-      IRIS_TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
+      NDWI_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
+      NDWI_TEST_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@staging-db:5432/${POSTGRES_DB}
     depends_on:
       migrate:
         condition: service_completed_successfully

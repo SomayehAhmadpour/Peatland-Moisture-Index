@@ -12,7 +12,7 @@ from affine import Affine
 from rasterio.windows import Window
 from shapely.geometry import Polygon, mapping
 
-from iris_ndwi.scenes import BandAsset, Scene
+from peat_ndwi.scenes import BandAsset, Scene
 
 # GDAL settings for anonymous, range-request reads of public COGs.
 GDAL_ENV = {

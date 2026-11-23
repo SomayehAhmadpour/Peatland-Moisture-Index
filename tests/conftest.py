@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from iris_ndwi.config import PipelineConfig, load_config
-from iris_ndwi.scenes import BandAsset
+from peat_ndwi.config import PipelineConfig, load_config
+from peat_ndwi.scenes import BandAsset
 
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures"

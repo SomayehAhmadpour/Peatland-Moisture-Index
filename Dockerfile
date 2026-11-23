@@ -31,8 +31,8 @@ COPY .streamlit ./.streamlit
 COPY examples ./examples
 RUN uv sync --frozen --group dev --group ui
 
-RUN useradd --create-home iris && mkdir -p /app/output && chown iris /app/output
-USER iris
+RUN useradd --create-home app && mkdir -p /app/output && chown app /app/output
+USER app
 
-ENTRYPOINT ["iris-ndwi"]
+ENTRYPOINT ["peat-ndwi"]
 CMD ["--help"]

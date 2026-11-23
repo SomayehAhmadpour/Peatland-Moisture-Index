@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from conftest import NO_OFFSET_BAND, OFFSET_BAND
 
-from iris_ndwi.ndwi import PixelStatus, below_offset_fraction, classify_pixels, ndwi, to_reflectance
+from peat_ndwi.ndwi import PixelStatus, below_offset_fraction, classify_pixels, ndwi, to_reflectance
 
 VALID_SCL = [4, 5, 6]
 

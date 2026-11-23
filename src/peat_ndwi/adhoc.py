@@ -15,12 +15,12 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from iris_ndwi.config import AreaParcel, BoxParcel, PipelineConfig
-from iris_ndwi.outputs import write_outputs
-from iris_ndwi.parcels import GeometryError, load_parcels
-from iris_ndwi.pipeline import RunResult, run_pipeline
-from iris_ndwi.report import quality_summary
-from iris_ndwi.sources import SceneSource, StacSource
+from peat_ndwi.config import AreaParcel, BoxParcel, PipelineConfig
+from peat_ndwi.outputs import write_outputs
+from peat_ndwi.parcels import GeometryError, load_parcels
+from peat_ndwi.pipeline import RunResult, run_pipeline
+from peat_ndwi.report import quality_summary
+from peat_ndwi.sources import SceneSource, StacSource
 
 
 def metric_crs(lat: float, lon: float) -> str:

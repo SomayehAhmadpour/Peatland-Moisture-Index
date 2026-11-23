@@ -1,4 +1,4 @@
-# IRIS-SAT-NDWI — Sentinel-2 moisture monitoring for peatlands
+# Peatland Moisture Index — Sentinel-2 moisture monitoring for peatlands
 
 Compute and monitor the green/NIR **NDWI** from Sentinel-2 L2A imagery for **any point, area or parcel**, from a
 web dashboard or the command line. Clouds, fog, snow and no-data are masked per pixel, valid pixels are summarised
@@ -16,9 +16,9 @@ per parcel and date, and every number can be traced back to the exact Sentinel-2
   2021–2026, in [`examples/`](examples/). Synthetic data is used only in tests and the offline demo, and is
   labelled as synthetic everywhere.
 
-Built for IRIS Task 112 (raster/satellite pipeline, destination `iris_staging`). The core deliverable is the
-pipeline, its `iris_staging` schema, the tests and the [quality report](QUALITY_REPORT.md); the dashboard and the
-ad-hoc analysis are extras on top of the same pipeline.
+A personal project in Earth observation and remote sensing. At its core are the pipeline, its PostGIS schema
+(`ndwi_staging`), the tests and the [quality report](QUALITY_REPORT.md); the dashboard and the ad-hoc analysis are
+built on top of the same pipeline.
 
 > **Key findings from the real data**
 >
@@ -37,14 +37,14 @@ ad-hoc analysis are extras on top of the same pipeline.
 > 5. **Auditable to the pixel.** Every excluded pixel has a status, every dropped scene a reason, every result the
 >    exact files it was read from, and results computed with other thresholds never overwrite earlier ones.
 
-**Deviation from the brief:** the brief asks for Python 3.11+; this project needs **3.12**: rasterio 1.4.3 has no Linux ARM
+**Python version:** this project needs **Python 3.12**: rasterio 1.4.3 has no Linux ARM
 wheel (needed for Docker on Apple Silicon), and 1.5.1, which has one, requires Python ≥ 3.12. uv and the Docker image
 install 3.12 automatically.
 
 **Contents:** [Quick start](#quick-start) · [Using the dashboard](#using-the-dashboard) ·
 [What can I change, and where?](#what-can-i-change-and-where) · [Command line](#command-line) ·
 [How it works](#how-it-works) · [Data provenance](#data-provenance) · [Method](#method) ·
-[Database](#database-schema-iris_staging) · [Tests](#tests) · [Evaluation](#evaluation) ·
+[Database](#database-schema-ndwi_staging) · [Tests](#tests) · [Evaluation](#evaluation) ·
 [Assumptions and limitations](#assumptions-and-limitations) · [Troubleshooting](#troubleshooting) ·
 [Repository layout](#repository-layout)
 
@@ -54,7 +54,7 @@ install 3.12 automatically.
 
 **1. Install the tools (once).** You need [Git](https://git-scm.com/downloads) and **one** of:
 
-| | Docker (recommended for reviewers) | uv (fastest for development) |
+| | Docker (clean, identical setup) | uv (fastest for development) |
 |---|---|---|
 | Install | [Docker Desktop](https://www.docker.com/products/docker-desktop/), or on macOS [Colima](https://github.com/abiosoft/colima) with [Homebrew](https://brew.sh): `brew install colima docker docker-compose docker-buildx` | macOS/Linux: `curl -LsSf https://astral.sh/uv/install.sh \| sh` (or `brew install uv`); Windows: `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 \| iex"` |
 | Includes | Python, all packages and a PostGIS database | Python 3.12 and all packages (installed by uv itself) |
@@ -131,7 +131,7 @@ needs no database or network.
 - **Manage this run → Re-run with these settings** repeats a run with new dates (and, for New-analysis boxes, a new
   box size). The result is a new run; runs are never edited in place. **Delete this run** removes one of your runs
   from `output/`.
-- **Export to PostGIS** sends the selected run to a database of your choice (see [Database](#database-schema-iris_staging)).
+- **Export to PostGIS** sends the selected run to a database of your choice (see [Database](#database-schema-ndwi_staging)).
 
 ## What can I change, and where?
 
@@ -147,7 +147,7 @@ needs no database or network.
 | Quality thresholds (cloud pre-filter, 80 % valid, SCL classes, fog test, offset guard, water threshold) | not editable: **New analysis** reads them from the config file at every run; **Re-run** keeps the run's own settings | see the table below |
 | Data source, parallel reads | – | `stac_url`, `collections`, `max_workers` |
 | What the charts show (parcel, period, months, scene, rejected dates) | sidebar filters (view only, no new data) | – |
-| Database target | **Export to PostGIS** form | `IRIS_STAGING_DATABASE_URL`; CLI `export --schema` |
+| Database target | **Export to PostGIS** form | `NDWI_DATABASE_URL`; CLI `export --schema` |
 
 So to change a threshold for dashboard analyses, edit the config file and start a new analysis. With uv the change
 applies at once; with Docker the file is part of the image, so run `docker compose build` and restart the dashboard
@@ -156,7 +156,7 @@ applies at once; with Docker the file is part of the image, so run `docker compo
 <details>
 <summary>All config keys</summary>
 
-The file is validated by a typed model ([`config.py`](src/iris_ndwi/config.py)), so a typo or an out-of-range value
+The file is validated by a typed model ([`config.py`](src/peat_ndwi/config.py)), so a typo or an out-of-range value
 stops the run with a clear message. Copy it to experiment: `cp config/wurzacher_ried.yaml config/my_test.yaml`,
 then `--config config/my_test.yaml`.
 
@@ -178,7 +178,7 @@ then `--config config/my_test.yaml`.
 | `max_workers` | 8 | Parallel scene reads |
 
 **Add a parcel:** append a box (or a feature to a GeoJSON file) with a new, unique `parcel_id` (lower-case letters,
-digits and `-`), then check it with `uv run iris-ndwi parcels --config …`:
+digits and `-`), then check it with `uv run peat-ndwi parcels --config …`:
 
 ```yaml
   - parcel_id: wr-forest-100m
@@ -198,20 +198,20 @@ a parcel file.
 
 ## Command line
 
-The command `iris-ndwi` runs the same pipeline as the dashboard. Prefix it with `uv run`, or with
+The command `peat-ndwi` runs the same pipeline as the dashboard. Prefix it with `uv run`, or with
 `docker compose run --rm pipeline` for Docker (`--to-db` then writes to the bundled database).
 
 ```bash
-uv run iris-ndwi run --config config/wurzacher_ried.yaml --start 2024-06-01 --end 2025-08-31   # your period
-uv run iris-ndwi run --config config/wurzacher_ried.yaml                     # the configured period (~3 min)
-uv run iris-ndwi run --config config/wurzacher_ried.yaml --source synthetic  # offline demo
-uv run iris-ndwi parcels --config config/wurzacher_ried.yaml                 # check parcel geometries only
+uv run peat-ndwi run --config config/wurzacher_ried.yaml --start 2024-06-01 --end 2025-08-31   # your period
+uv run peat-ndwi run --config config/wurzacher_ried.yaml                     # the configured period (~3 min)
+uv run peat-ndwi run --config config/wurzacher_ried.yaml --source synthetic  # offline demo
+uv run peat-ndwi parcels --config config/wurzacher_ried.yaml                 # check parcel geometries only
 
 docker compose run --rm pipeline run --config config/wurzacher_ried.yaml --start 2024-06-01 --end 2025-08-31 --to-db
 ```
 
 Options: `-v` before `run` shows progress; `--output-dir <dir>` writes elsewhere; `--to-db` also upserts into
-`iris_staging`, with the connection read from `IRIS_STAGING_DATABASE_URL` (see [`.env.example`](.env.example)).
+`ndwi_staging`, with the connection read from `NDWI_DATABASE_URL` (see [`.env.example`](.env.example)).
 The run ends with a line like `run 20261029T105855Z-c26028a8: 67 scenes … -> output/20261029T105855Z-c26028a8`;
 the run ID is the UTC start time plus a fingerprint of the configuration.
 
@@ -225,17 +225,17 @@ the run ID is the UTC start time plus a fingerprint of the configuration.
 | `parcels.geojson` | The parcels used, EPSG:25832 |
 | `manifest.json` | Provenance: full config + SHA-256, collections, software versions, licences, counts |
 
-**Export a finished run to your own PostGIS database** (into `iris_staging` or any other schema):
+**Export a finished run to your own PostGIS database** (into `ndwi_staging` or any other schema):
 
 ```bash
-export IRIS_STAGING_DATABASE_URL=postgresql://user:password@host:5432/database
-uv run iris-ndwi export output/<run_id> --schema my_ndwi --create-tables
+export NDWI_DATABASE_URL=postgresql://user:password@host:5432/database
+uv run peat-ndwi export output/<run_id> --schema my_ndwi --create-tables
 ```
 
-**Docker extras:** `docker compose exec staging-db psql -U iris_staging -d iris_staging_db` opens the bundled
+**Docker extras:** `docker compose exec staging-db psql -U ndwi -d ndwi_db` opens the bundled
 database; `docker compose down` stops everything (add `-v` to delete the database). The compose stack starts its
 **own** PostGIS container (`staging-db`, bound to `127.0.0.1:5434`), runs the Alembic migration, which creates only
-the `iris_staging` schema, and never connects to `iris_core` or any production system.
+the `ndwi_staging` schema, and never connects to any other database.
 
 <details>
 <summary>Helper scripts</summary>
@@ -272,7 +272,7 @@ flowchart TD
     ACQ["<b>1. Acquisition</b><br/>search both collections, drop other tiles<br/>de-duplicate acquisitions, cloud pre-filter<br/><i>sources.py, scenes.py</i>"]
     PRO["<b>2. Processing</b><br/>read B02, B03, B08, SCL windows<br/>BOA-offset harmonisation + guard<br/>SCL + fog masks → NDWI per pixel<br/><i>sources.py, ndwi.py</i>"]
     ANA["<b>3. Analytics</b><br/>pixels per parcel, status counts<br/>median, p25–p75, valid fraction<br/>accept / reject per parcel × scene<br/><i>parcels.py, zonal.py, pipeline.py</i>"]
-    STO["<b>4. Storage</b><br/>CSV, GeoJSON (EPSG:25832), manifest<br/>PostGIS iris_staging (upserts)<br/>export to your own PostGIS<br/><i>outputs.py, staging.py, alembic/</i>"]
+    STO["<b>4. Storage</b><br/>CSV, GeoJSON (EPSG:25832), manifest<br/>PostGIS ndwi_staging (upserts)<br/>export to your own PostGIS<br/><i>outputs.py, staging.py, alembic/</i>"]
     SRV["<b>5. Results & queries</b><br/>quality summary, validation SQL<br/>rule-based interpretation<br/><i>report.py, validation_queries.sql, interpret.py</i>"]
     UI["<b>6. Streamlit dashboard</b><br/>KPIs, satellite map, time series, scene ledger<br/>new analysis for any point or area<br/><i>ui/app.py</i>"]
     EVA["<b>7. Evaluation</b><br/>same places and dates as the references<br/>agreement: bias, RMSE, correlation<br/><i>scripts/jncc_check.py, la_salada_check.py</i>"]
@@ -320,9 +320,9 @@ versions, the licences and the counts; `scenes.csv` lists **every** STAC item fo
 it was dropped, and the exact COG URLs of all four bands read (B02, B03, B08, SCL).
 
 **Why not Google Earth Engine?** GEE needs a Google account or service-account credentials. That would break "never
-include secrets" and stop reviewers running the stack without their own account. It also processes server-side,
+include secrets" and stop anyone running the stack without their own account. It also processes server-side,
 which makes per-pixel auditing harder. A GEE adapter can be added behind the same `SceneSource` protocol
-([`sources.py`](src/iris_ndwi/sources.py)).
+([`sources.py`](src/peat_ndwi/sources.py)).
 
 ### The worked example: Wurzacher Ried
 
@@ -372,12 +372,12 @@ its own values in the same month (see the monitoring table in `quality_summary.m
 
 Runs are deterministic: the same config and the same STAC items give byte-identical observations (tested).
 
-## Database schema (`iris_staging`)
+## Database schema (`ndwi_staging`)
 
 Created by the Alembic migrations in [`alembic/versions/`](alembic/versions/) (`0001` creates the tables, `0002`
 moves scene decisions into their own table and adds the thresholds digest and `blue_href`, keeping existing rows);
-the Alembic version table lives in `iris_staging` as well. The writer ([`staging.py`](src/iris_ndwi/staging.py))
-checks that every target table is in `iris_staging`, and all writes are idempotent upserts in one transaction.
+the Alembic version table lives in `ndwi_staging` as well. The writer ([`staging.py`](src/peat_ndwi/staging.py))
+checks that every target table is in `ndwi_staging`, and all writes are idempotent upserts in one transaction.
 
 | Table | Key | Content |
 |---|---|---|
@@ -409,8 +409,8 @@ checks that every target table is in `iris_staging`, and all writes are idempote
 
 </details>
 
-**Export** (`iris-ndwi export`, dashboard *Export to PostGIS*) writes the same five tables into one chosen schema of
-any database: the tables are redirected with SQLAlchemy's `schema_translate_map`, `iris_core`, `public` and `pg_*` are
+**Export** (`peat-ndwi export`, dashboard *Export to PostGIS*) writes the same five tables into one chosen schema of
+any database: the tables are redirected with SQLAlchemy's `schema_translate_map`, `public` and `pg_*` are
 refused, and *create tables* adds the PostGIS extension, schema and tables if missing. Geometries are reprojected to
 EPSG:25832, and an existing `parcel_id` with a different outline (> 0.5 m Hausdorff distance) stops the export instead
 of silently moving it. From the Docker dashboard, the bundled database is `postgresql://<user>:<password>@staging-db:5432/<db>`,
@@ -421,7 +421,7 @@ Validation SQL: [`examples/validation_queries.sql`](examples/validation_queries.
 ## Tests
 
 `uv run pytest` runs 136 offline tests in under two seconds; `docker compose run --rm tests` runs all 138, adding two
-PostGIS round trips (the `iris_staging` writer, and the export into a fresh schema that is dropped afterwards).
+PostGIS round trips (the `ndwi_staging` writer, and the export into a fresh schema that is dropped afterwards).
 [GitHub Actions](.github/workflows/tests.yml) runs all 138 against a PostGIS service on every push.
 Synthetic scene ids start with `SYNTHETIC_`, so test data can never overwrite real rows.
 
@@ -489,7 +489,7 @@ places and dates — full details in [`docs/EVALUATION.md`](docs/EVALUATION.md).
 | `warning: VIRTUAL_ENV=… does not match the project environment` | Harmless (an active conda/venv); `conda deactivate` / `deactivate` silences it |
 | A few `read_error` scenes in `scenes.csv` | Transient HTTP errors from the COG host; recorded, and the run continues. Re-run to fill them |
 | `column … method_params_sha256 does not exist` or `relation … s2_ndwi_run_scene does not exist` | The database predates migration 0002: `docker compose run --rm migrate` (existing rows are kept) |
-| `schema iris_staging does not exist` with `--to-db` | `docker compose run --rm migrate` (or `uv run alembic upgrade head` with `IRIS_STAGING_DATABASE_URL` set) |
+| `schema ndwi_staging does not exist` with `--to-db` | `docker compose run --rm migrate` (or `uv run alembic upgrade head` with `NDWI_DATABASE_URL` set) |
 | Export: `schema … does not exist` | Tick *Create PostGIS, the schema and the tables* (CLI: `--create-tables`), or run the migration |
 | Export: `parcel … already exists … with a different geometry` | That `parcel_id` is stored with another outline; export into another schema |
 | Export: `connection failed … Connection refused` from the Docker dashboard | `localhost` is the container itself; use `staging-db` or `host.docker.internal` |
@@ -498,11 +498,11 @@ places and dates — full details in [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 ```
 README.md, QUALITY_REPORT.md   documentation and quality/error report
-src/iris_ndwi/   config · parcels · scenes · sources (STAC/COG) · ndwi · zonal · pipeline · outputs · staging · report · interpret · synthetic · adhoc · cli
+src/peat_ndwi/   config · parcels · scenes · sources (STAC/COG) · ndwi · zonal · pipeline · outputs · staging · report · interpret · synthetic · adhoc · cli
 ui/              Streamlit dashboard (optional `ui` dependency group)
 config/          example configuration (no secrets)
 data/parcels/    committed OSM parcel snapshot (ODbL)
-alembic/         iris_staging migrations (0001 tables, 0002 per-run scene decisions + thresholds key)
+alembic/         ndwi_staging migrations (0001 tables, 0002 per-run scene decisions + thresholds key)
 .github/         GitHub Actions: all tests against PostGIS on every push
 scripts/         plot_timeseries · cross_collection_check · fetch_osm_parcels · jncc_check · la_salada_check
 tests/           pytest suite + recorded real STAC fixtures

@@ -1,9 +1,9 @@
-"""Write a run to PostgreSQL/PostGIS: the isolated iris_staging schema, or a
+"""Write a run to PostgreSQL/PostGIS: the isolated ndwi_staging schema, or a
 schema of the user's own database (export).
 
-Tables are declared once, in iris_staging; an export to another schema only
+Tables are declared once, in ndwi_staging; an export to another schema only
 renames it via SQLAlchemy's schema_translate_map, so nothing is ever written
-outside that one schema, and iris_core, public and the system schemas are
+outside that one schema, and public and the system schemas are
 refused. Tables come from the Alembic migration in alembic/versions or, on
 request, from create_tables (same tables, constraints and indexes). Writes
 are idempotent upserts keyed on stable identifiers, so re-running a period
@@ -31,15 +31,15 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.engine import Engine
 
-from iris_ndwi.outputs import SCENE_COLUMNS, manifest, observation_rows, scene_rows
-from iris_ndwi.parcels import reproject
-from iris_ndwi.pipeline import RunResult, method_params_digest
-from iris_ndwi.zonal import observation_id
+from peat_ndwi.outputs import SCENE_COLUMNS, manifest, observation_rows, scene_rows
+from peat_ndwi.parcels import reproject
+from peat_ndwi.pipeline import RunResult, method_params_digest
+from peat_ndwi.zonal import observation_id
 
-STAGING_SCHEMA = "iris_staging"
-DATABASE_URL_ENV = "IRIS_STAGING_DATABASE_URL"
+STAGING_SCHEMA = "ndwi_staging"
+DATABASE_URL_ENV = "NDWI_DATABASE_URL"
 GEOMETRY_CRS = "EPSG:25832"
-PROTECTED_SCHEMAS = {"iris_core", "public", "information_schema"}
+PROTECTED_SCHEMAS = {"public", "information_schema"}
 _SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 metadata = MetaData(schema=STAGING_SCHEMA)
@@ -171,7 +171,7 @@ def check_schema_name(schema: str) -> None:
 
 
 def engine_for(url: str, schema: str = STAGING_SCHEMA) -> Engine:
-    """Engine whose tables live in schema (default iris_staging). postgresql:// URLs use psycopg 3."""
+    """Engine whose tables live in schema (default ndwi_staging). postgresql:// URLs use psycopg 3."""
     check_schema_name(schema)
     parsed = make_url(url)
     if parsed.drivername in ("postgresql", "postgres"):

@@ -14,7 +14,7 @@ from enum import IntEnum
 
 import numpy as np
 
-from iris_ndwi.scenes import BandAsset
+from peat_ndwi.scenes import BandAsset
 
 METHOD_VERSION = "ndwi-mcfeeters-b03b08-v1"
 

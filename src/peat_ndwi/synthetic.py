@@ -14,14 +14,14 @@ import numpy as np
 from affine import Affine
 from shapely.geometry import Polygon
 
-from iris_ndwi.scenes import Scene
-from iris_ndwi.sources import SceneWindow, SourceError, aligned_windows
+from peat_ndwi.scenes import Scene
+from peat_ndwi.sources import SceneWindow, SourceError, aligned_windows
 
 TILE = "32UNU"
 TILE_ORIGIN = Affine(10, 0, 499980, 0, -10, 5400000)
 FAIL_HREF = "synthetic://read-error"
 # Published item ids carry this prefix so synthetic rows can never collide with
-# (and upsert over) real Sentinel-2 item ids in iris_staging.
+# (and upsert over) real Sentinel-2 item ids in ndwi_staging.
 ID_PREFIX = "SYNTHETIC_"
 
 

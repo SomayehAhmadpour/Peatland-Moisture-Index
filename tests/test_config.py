@@ -3,7 +3,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from iris_ndwi.config import PipelineConfig
+from peat_ndwi.config import PipelineConfig
 
 BASE = {
     "study_area": "t",

@@ -11,12 +11,12 @@ from datetime import datetime, timezone
 
 from shapely.ops import unary_union
 
-from iris_ndwi.config import PipelineConfig
-from iris_ndwi.ndwi import METHOD_VERSION, below_offset_fraction, classify_pixels
-from iris_ndwi.parcels import Parcel, reproject
-from iris_ndwi.scenes import Scene, SceneRejection, dominant_tile, select_scenes
-from iris_ndwi.sources import SceneSource, SourceError
-from iris_ndwi.zonal import ParcelObservation, parcel_pixel_mask, summarize
+from peat_ndwi.config import PipelineConfig
+from peat_ndwi.ndwi import METHOD_VERSION, below_offset_fraction, classify_pixels
+from peat_ndwi.parcels import Parcel, reproject
+from peat_ndwi.scenes import Scene, SceneRejection, dominant_tile, select_scenes
+from peat_ndwi.sources import SceneSource, SourceError
+from peat_ndwi.zonal import ParcelObservation, parcel_pixel_mask, summarize
 
 log = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-# Quality and error report — IRIS-SAT-NDWI
+# Quality and error report — Peatland Moisture Index
 
 Representative run: [`examples/runs/20261029T130329Z-7323912d/`](examples/runs/20261029T130329Z-7323912d/)
 (real Sentinel-2 L2A, tile 32UNU, 2021-01-01 → 2026-10-26, config SHA-256 `7323912d…`, produced with exactly the
@@ -117,7 +117,7 @@ its own history, so the result does not depend on how bog and field differ in ve
 | Box in EPSG:25832 on the EPSG:32632 pixel grid | exactly 100 pixels | `test_parcels.py` |
 | Empty date range | valid empty result and report | `test_pipeline.py` |
 
-## 5. Acceptance criteria → evidence
+## 5. Quality criteria → evidence
 
 | Criterion | Evidence |
 |---|---|
@@ -125,7 +125,7 @@ its own history, so the result does not depend on how bog and field differ in ve
 | Temporal comparability | Per-item offset harmonisation; the same surface before and after baseline 04.00 gives the same NDWI (test). **Cross-collection check:** different files from two archives give identical parcel medians for **31/31** matched observations in 2023 and **28/28** in 2021 (`examples/cross_collection_check_*.csv`). Year comparisons are limited to the same season |
 | Acquisition dates | UTC `acquired_at` on every scene and observation; duplicates resolved per UTC day; sun elevation recorded |
 | Threshold assumptions | All in config and documented: cloud pre-filter 80 %, valid fraction 0.8, SCL {4,5,6}, blue 0.12, water NDWI > 0 (McFeeters, not calibrated), offset guard 0.5 |
-| Deterministic / auditable | Two live runs of the same config ~35 min apart (before the blue test was added) gave identical scene, observation and acceptance counts and identical summary tables; repeated runs give identical rows (test); config hash, thresholds digest, software versions and the exact COG URLs of all four bands in `manifest.json` and `scenes.csv`; every excluded pixel has a status; in `iris_staging`, results under other thresholds get new keys instead of overwriting, and each run keeps its own scene decisions (`s2_ndwi_run_scene`, migration 0002, tested against PostGIS) |
+| Deterministic / auditable | Two live runs of the same config ~35 min apart (before the blue test was added) gave identical scene, observation and acceptance counts and identical summary tables; repeated runs give identical rows (test); config hash, thresholds digest, software versions and the exact COG URLs of all four bands in `manifest.json` and `scenes.csv`; every excluded pixel has a status; in `ndwi_staging`, results under other thresholds get new keys instead of overwriting, and each run keeps its own scene decisions (`s2_ndwi_run_scene`, migration 0002, tested against PostGIS) |
 | Spatial output, EPSG:25832 | Parcels stored as valid `MULTIPOLYGON` SRID 25832 (CHECK `ST_IsValid`); validation SQL query 3 |
 
 ## 6. Known gaps and uncertainty

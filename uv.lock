@@ -377,61 +377,6 @@ wheels = [
 ]
 
 [[package]]
-name = "iris-ndwi"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "alembic" },
-    { name = "geoalchemy2" },
-    { name = "numpy" },
-    { name = "psycopg", extra = ["binary"] },
-    { name = "pydantic" },
-    { name = "pyproj" },
-    { name = "pystac-client" },
-    { name = "pyyaml" },
-    { name = "rasterio" },
-    { name = "shapely" },
-    { name = "sqlalchemy" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "pytest" },
-]
-ui = [
-    { name = "folium" },
-    { name = "pandas" },
-    { name = "plotly" },
-    { name = "streamlit" },
-    { name = "streamlit-folium" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "alembic", specifier = "==1.14.1" },
-    { name = "geoalchemy2", specifier = "==0.17.1" },
-    { name = "numpy", specifier = "==2.2.3" },
-    { name = "psycopg", extras = ["binary"], specifier = "==3.2.5" },
-    { name = "pydantic", specifier = "==2.10.6" },
-    { name = "pyproj", specifier = "==3.7.1" },
-    { name = "pystac-client", specifier = "==0.8.6" },
-    { name = "pyyaml", specifier = "==6.0.2" },
-    { name = "rasterio", specifier = "==1.5.1" },
-    { name = "shapely", specifier = "==2.0.7" },
-    { name = "sqlalchemy", specifier = "==2.0.38" },
-]
-
-[package.metadata.requires-dev]
-dev = [{ name = "pytest", specifier = "==8.3.5" }]
-ui = [
-    { name = "folium", specifier = "==0.19.4" },
-    { name = "pandas", specifier = "==2.2.3" },
-    { name = "plotly", specifier = "==6.0.0" },
-    { name = "streamlit", specifier = "==1.42.2" },
-    { name = "streamlit-folium", specifier = "==0.24.0" },
-]
-
-[[package]]
 name = "jinja2"
 version = "3.1.6"
 source = { registry = "https://pypi.org/simple" }
@@ -704,6 +649,61 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/25/b0/98d6ae2e1abac4f35230aa756005e8654649d305df9a28b16b9ae4353bff/pandas-2.2.3-cp313-cp313t-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1db71525a1538b30142094edb9adc10be3f3e176748cd7acc2240c2f2e5aa3a4", size = 11871013, upload-time = "2024-09-20T13:09:44.39Z" },
     { url = "https://files.pythonhosted.org/packages/cc/57/0f72a10f9db6a4628744c8e8f0df4e6e21de01212c7c981d31e50ffc8328/pandas-2.2.3-cp313-cp313t-musllinux_1_2_aarch64.whl", hash = "sha256:15c0e1e02e93116177d29ff83e8b1619c93ddc9c49083f237d4312337a61165d", size = 15711620, upload-time = "2024-09-20T19:02:20.639Z" },
     { url = "https://files.pythonhosted.org/packages/ab/5f/b38085618b950b79d2d9164a711c52b10aefc0ae6833b96f626b7021b2ed/pandas-2.2.3-cp313-cp313t-musllinux_1_2_x86_64.whl", hash = "sha256:ad5b65698ab28ed8d7f18790a0dc58005c7629f227be9ecc1072aa74c0c1d43a", size = 13098436, upload-time = "2024-09-20T13:09:48.112Z" },
+]
+
+[[package]]
+name = "peat-ndwi"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "alembic" },
+    { name = "geoalchemy2" },
+    { name = "numpy" },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "pydantic" },
+    { name = "pyproj" },
+    { name = "pystac-client" },
+    { name = "pyyaml" },
+    { name = "rasterio" },
+    { name = "shapely" },
+    { name = "sqlalchemy" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "pytest" },
+]
+ui = [
+    { name = "folium" },
+    { name = "pandas" },
+    { name = "plotly" },
+    { name = "streamlit" },
+    { name = "streamlit-folium" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "alembic", specifier = "==1.14.1" },
+    { name = "geoalchemy2", specifier = "==0.17.1" },
+    { name = "numpy", specifier = "==2.2.3" },
+    { name = "psycopg", extras = ["binary"], specifier = "==3.2.5" },
+    { name = "pydantic", specifier = "==2.10.6" },
+    { name = "pyproj", specifier = "==3.7.1" },
+    { name = "pystac-client", specifier = "==0.8.6" },
+    { name = "pyyaml", specifier = "==6.0.2" },
+    { name = "rasterio", specifier = "==1.5.1" },
+    { name = "shapely", specifier = "==2.0.7" },
+    { name = "sqlalchemy", specifier = "==2.0.38" },
+]
+
+[package.metadata.requires-dev]
+dev = [{ name = "pytest", specifier = "==8.3.5" }]
+ui = [
+    { name = "folium", specifier = "==0.19.4" },
+    { name = "pandas", specifier = "==2.2.3" },
+    { name = "plotly", specifier = "==6.0.0" },
+    { name = "streamlit", specifier = "==1.42.2" },
+    { name = "streamlit-folium", specifier = "==0.24.0" },
 ]
 
 [[package]]

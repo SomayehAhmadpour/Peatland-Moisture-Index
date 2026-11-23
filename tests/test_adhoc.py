@@ -7,15 +7,15 @@ import pytest
 from pyproj import Geod
 from shapely.geometry import Point, box, mapping
 
-from iris_ndwi.adhoc import (
+from peat_ndwi.adhoc import (
     MAX_AREA_KM2, area_config, box_parcel_id, is_single_box, metric_crs, parse_coordinate, point_config, rerun_config,
     run_and_write,
 )  # fmt: skip
-from iris_ndwi.config import BoxParcel
-from iris_ndwi.parcels import GeometryError, load_parcels
-from iris_ndwi.pipeline import run_pipeline
-from iris_ndwi.scenes import dominant_tile
-from iris_ndwi.synthetic import SyntheticSource
+from peat_ndwi.config import BoxParcel
+from peat_ndwi.parcels import GeometryError, load_parcels
+from peat_ndwi.pipeline import run_pipeline
+from peat_ndwi.scenes import dominant_tile
+from peat_ndwi.synthetic import SyntheticSource
 
 
 @pytest.mark.parametrize(

@@ -19,7 +19,7 @@ from shapely.geometry import MultiPolygon, Polygon, box, shape
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import transform
 
-from iris_ndwi.config import AreaParcel, BoxParcel, PipelineConfig
+from peat_ndwi.config import AreaParcel, BoxParcel, PipelineConfig
 
 
 class GeometryError(ValueError):

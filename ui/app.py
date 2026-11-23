@@ -1,8 +1,8 @@
-"""IRIS NDWI dashboard — view of a pipeline run, plus ad-hoc runs for any point.
+"""Peatland NDWI dashboard — view of a pipeline run, plus ad-hoc runs for any point.
 
     uv run --group ui streamlit run ui/app.py
 
-Reads a run folder written by `iris-ndwi run` (observations.csv, scenes.csv,
+Reads a run folder written by `peat-ndwi run` (observations.csv, scenes.csv,
 parcels.geojson, manifest.json); viewing needs no database or network access.
 "New analysis" runs the same pipeline live for a box around a clicked point
 and writes a new run folder to output/ (network access to Earth Search needed).
@@ -26,13 +26,13 @@ from shapely.geometry import mapping, shape
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from streamlit_folium import st_folium
 
-from iris_ndwi.adhoc import (
+from peat_ndwi.adhoc import (
     MAX_AREA_KM2, area_config, is_single_box, metric_crs, parse_coordinate, point_config, rerun_config, run_and_write,
 )  # fmt: skip
-from iris_ndwi.config import load_config
-from iris_ndwi.interpret import Obs, interpret
-from iris_ndwi.parcels import GeometryError, load_parcels, lonlat_rectangle, reproject, square_box
-from iris_ndwi.staging import DATABASE_URL_ENV, STAGING_SCHEMA, StagingGuardError, engine_for, export_run_dir
+from peat_ndwi.config import load_config
+from peat_ndwi.interpret import Obs, interpret
+from peat_ndwi.parcels import GeometryError, load_parcels, lonlat_rectangle, reproject, square_box
+from peat_ndwi.staging import DATABASE_URL_ENV, STAGING_SCHEMA, StagingGuardError, engine_for, export_run_dir
 
 ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = ROOT / "output"
@@ -49,7 +49,7 @@ PRIMARY, TEXT_MUTED, BORDER = "#2563EB", "#64748B", "#E5E7EB"
 PARCEL_COLOURS = {"bog-core": "#2563EB", "bog": "#16A34A", "reserve": "#94A3B8", "reference": "#DC2626", "point": "#7C3AED", "area": "#7C3AED"}
 NDWI_RANGE = (-0.80, -0.45)  # colour scale for the map; values outside are clipped
 
-st.set_page_config(page_title="IRIS · Peatland NDWI", page_icon="🛰️", layout="wide")
+st.set_page_config(page_title="Peatland NDWI", page_icon="🛰️", layout="wide")
 st.markdown(
     f"""
     <style>
@@ -439,7 +439,7 @@ def export_panel(run_dir: Path) -> None:
                 "Database URL", type="password", placeholder="postgresql://user:password@host:5432/database",
                 help=f"Leave empty to use ${DATABASE_URL_ENV}. Not saved to disk.",
             )  # fmt: skip
-            schema = st.text_input("Schema", value=STAGING_SCHEMA, help="iris_core and public are refused")
+            schema = st.text_input("Schema", value=STAGING_SCHEMA, help="public and system schemas are refused")
             create = st.checkbox("Create PostGIS, the schema and the tables if missing", value=True)
             submitted = st.form_submit_button("Export this run", use_container_width=True)
         st.caption("Upserts run, parcels (EPSG:25832), scenes and observations; exporting again updates the same rows.")
@@ -474,7 +474,7 @@ if "new_analysis" not in st.session_state:
 runs = find_runs()
 
 with st.sidebar:
-    st.markdown("### 🛰️ IRIS · Peatland NDWI")
+    st.markdown("### 🛰️ Peatland NDWI")
     if st.session_state.new_analysis:
         if runs and st.button("← Back to results", use_container_width=True):
             st.session_state.new_analysis = False

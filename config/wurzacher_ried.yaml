@@ -1,6 +1,6 @@
-# IRIS-SAT-NDWI example configuration: Wurzacher Ried (Bad Wurzach, Baden-Württemberg)
+# Peatland Moisture Index example configuration: Wurzacher Ried (Bad Wurzach, Baden-Württemberg)
 # No secrets belong here. The staging database URL is read from the
-# IRIS_STAGING_DATABASE_URL environment variable (see .env.example).
+# NDWI_DATABASE_URL environment variable (see .env.example).
 
 study_area: Wurzacher Ried (NSG 4.035), Bad Wurzach, DE-BW
 

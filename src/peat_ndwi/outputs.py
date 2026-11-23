@@ -11,11 +11,11 @@ from pathlib import Path
 
 from shapely.geometry import mapping
 
-from iris_ndwi.config import SCL_CLASSES
-from iris_ndwi.ndwi import METHOD_VERSION
-from iris_ndwi.pipeline import METHOD_PARAMS, RunResult
-from iris_ndwi.scenes import Scene
-from iris_ndwi.zonal import ParcelObservation
+from peat_ndwi.config import SCL_CLASSES
+from peat_ndwi.ndwi import METHOD_VERSION
+from peat_ndwi.pipeline import METHOD_PARAMS, RunResult
+from peat_ndwi.scenes import Scene
+from peat_ndwi.zonal import ParcelObservation
 
 SCENE_COLUMNS = [
     "item_id", "collection", "acquired_at", "platform", "mgrs_tile", "processing_baseline", "generation_time",
